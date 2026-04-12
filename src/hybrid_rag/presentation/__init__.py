@@ -1,0 +1,1 @@
+"""Presentation layer — entry points that wire infrastructure to use cases."""

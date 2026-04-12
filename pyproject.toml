@@ -1,0 +1,27 @@
+[project]
+name = "hybrid-rag"
+version = "0.1.0"
+description = "Hybrid Retrieval Augmented Generation with CLI and knowledge graph"
+authors = [{"name" = "Your Name", "email" = "you@example.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "python-dotenv>=1.0",
+    "pypdf>=4.0",
+    "faiss-cpu>=1.8",
+    "networkx>=3.3",
+    "rich>=13.7",
+    "requests>=2.31",
+]
+
+[project.scripts]
+hybrid-rag = "hybrid_rag.presentation.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
