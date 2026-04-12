@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from .entities import Document
-from .value_objects import ChunkMetadata, EmbeddingVector, RetrievalResult
+from .value_objects import ChunkMetadata, EmbeddingVector, RetrievalResult, Triple
 
 
 class EmbeddingProvider(ABC):
@@ -31,7 +31,9 @@ class VectorStore(ABC):
     """Port for persisting and searching embedding vectors."""
 
     @abstractmethod
-    def add(self, vectors: list[EmbeddingVector], metadata: list[ChunkMetadata]) -> None:
+    def add(
+        self, vectors: list[EmbeddingVector], metadata: list[ChunkMetadata]
+    ) -> None:
         """Add vectors and their associated metadata to the store."""
         ...
 
@@ -60,18 +62,42 @@ class DocumentReader(ABC):
 
 
 class GraphStore(ABC):
-    """Placeholder port for a knowledge graph store.
+    """Port for a knowledge graph store.
 
-    This port is included so the architecture is ready for the planned
-    knowledge-graph feature.  No infrastructure implementation exists yet.
+    Stores entity-relation triples extracted from documents and supports
+    neighbour-based graph retrieval for hybrid search.
     """
 
     @abstractmethod
-    def add_triples(self, triples: list[tuple[str, str, str]]) -> None:
-        """Add (subject, predicate, object) triples to the graph."""
+    def add_triples(self, triples: list[Triple]) -> None:
+        """Add triples to the graph."""
         ...
 
     @abstractmethod
-    def query(self, question: str) -> list[dict]:
-        """Query the graph and return structured results."""
+    def query(self, question: str, top_k: int = 10) -> list[RetrievalResult]:
+        """Retrieve chunks connected to entities mentioned in *question*."""
+        ...
+
+    @abstractmethod
+    def node_count(self) -> int:
+        """Return the number of unique nodes in the graph."""
+        ...
+
+    @abstractmethod
+    def edge_count(self) -> int:
+        """Return the number of edges in the graph."""
+        ...
+
+    @abstractmethod
+    def all_triples(self) -> list[Triple]:
+        """Return all triples in the graph."""
+        ...
+
+
+class TripleExtractor(ABC):
+    """Port for extracting knowledge-graph triples from text."""
+
+    @abstractmethod
+    def extract(self, text: str, source: str) -> list[Triple]:
+        """Extract (subject, predicate, object) triples from *text*."""
         ...

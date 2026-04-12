@@ -36,6 +36,27 @@ class ChunkMetadata:
 
 
 @dataclass(frozen=True)
+class Triple:
+    """A knowledge-graph triple (subject, predicate, object).
+
+    Attributes:
+        subject:      The source entity.
+        predicate:    The relationship label.
+        obj:          The target entity or value.
+        source:       The document source this triple was extracted from.
+        chunk_index:  The chunk index within the source document.
+        chunk_text:   The text of the chunk this triple was extracted from.
+    """
+
+    subject: str
+    predicate: str
+    obj: str
+    source: str = ""
+    chunk_index: int = 0
+    chunk_text: str = ""
+
+
+@dataclass(frozen=True)
 class RetrievalResult:
     """A single result returned by a similarity search.
 
