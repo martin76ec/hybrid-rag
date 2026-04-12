@@ -1,14 +1,29 @@
 """Smoke tests for use cases with mock implementations."""
+
 from hybrid_rag.application.ingest import IngestDocumentUseCase
 from hybrid_rag.application.query import QueryKnowledgeBaseUseCase
-from hybrid_rag.domain.ports import DocumentReader, EmbeddingProvider, VectorStore, LanguageModel
+from hybrid_rag.domain.ports import (
+    DocumentReader,
+    EmbeddingProvider,
+    VectorStore,
+    LanguageModel,
+    GraphStore,
+    TripleExtractor,
+)
 from hybrid_rag.domain.entities import Document
-from hybrid_rag.domain.value_objects import EmbeddingVector, ChunkMetadata, RetrievalResult
+from hybrid_rag.domain.value_objects import (
+    EmbeddingVector,
+    ChunkMetadata,
+    RetrievalResult,
+    Triple,
+)
 
 
 class FakeReader(DocumentReader):
     def read(self, source):
-        return Document(source=source, text="Hello world this is a test document with some words.")
+        return Document(
+            source=source, text="Hello world this is a test document with some words."
+        )
 
 
 class FakeEmbedder(EmbeddingProvider):
@@ -39,22 +54,100 @@ class FakeLLM(LanguageModel):
         return "This is a fake answer."
 
 
+class FakeGraphStore(GraphStore):
+    def __init__(self):
+        self._triples: list[Triple] = []
+
+    def add_triples(self, triples):
+        self._triples.extend(triples)
+
+    def query(self, question, top_k=10):
+        return []
+
+    def node_count(self):
+        entities = set()
+        for t in self._triples:
+            entities.add(t.subject)
+            entities.add(t.obj)
+        return len(entities)
+
+    def edge_count(self):
+        return len(self._triples)
+
+    def all_triples(self):
+        return self._triples
+
+
+class FakeTripleExtractor(TripleExtractor):
+    def extract(self, text, source=""):
+        return [
+            Triple(
+                subject="Test",
+                predicate="is_a",
+                obj="Document",
+                source=source,
+                chunk_index=0,
+                chunk_text=text,
+            )
+        ]
+
+
 def test_ingest():
     store = FakeStore()
-    use_case = IngestDocumentUseCase(reader=FakeReader(), embedder=FakeEmbedder(), store=store)
+    use_case = IngestDocumentUseCase(
+        reader=FakeReader(), embedder=FakeEmbedder(), store=store
+    )
     result = use_case.execute("test.pdf", chunk_size=10, overlap=2)
     assert result.source == "test.pdf"
     assert result.num_chunks > 0
     assert len(store._data) == result.num_chunks
+    assert result.num_triples == 0
+
+
+def test_ingest_with_graph():
+    store = FakeStore()
+    graph_store = FakeGraphStore()
+    extractor = FakeTripleExtractor()
+    use_case = IngestDocumentUseCase(
+        reader=FakeReader(),
+        embedder=FakeEmbedder(),
+        store=store,
+        triple_extractor=extractor,
+        graph_store=graph_store,
+    )
+    result = use_case.execute("test.pdf", chunk_size=10, overlap=2)
+    assert result.num_triples > 0
+    assert graph_store.edge_count() == result.num_triples
 
 
 def test_query():
     store = FakeStore()
-    uc = IngestDocumentUseCase(reader=FakeReader(), embedder=FakeEmbedder(), store=store)
+    uc = IngestDocumentUseCase(
+        reader=FakeReader(), embedder=FakeEmbedder(), store=store
+    )
     uc.execute("test.pdf", chunk_size=10, overlap=2)
 
     q_use_case = QueryKnowledgeBaseUseCase(
         embedder=FakeEmbedder(), store=store, llm=FakeLLM()
+    )
+    result = q_use_case.execute("What is this?")
+    assert result.answer == "This is a fake answer."
+    assert len(result.sources) > 0
+
+
+def test_query_with_graph():
+    store = FakeStore()
+    uc = IngestDocumentUseCase(
+        reader=FakeReader(), embedder=FakeEmbedder(), store=store
+    )
+    uc.execute("test.pdf", chunk_size=10, overlap=2)
+
+    graph_store = FakeGraphStore()
+    q_use_case = QueryKnowledgeBaseUseCase(
+        embedder=FakeEmbedder(),
+        store=store,
+        llm=FakeLLM(),
+        graph_store=graph_store,
     )
     result = q_use_case.execute("What is this?")
     assert result.answer == "This is a fake answer."
