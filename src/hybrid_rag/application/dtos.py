@@ -14,12 +14,14 @@ class IngestResult:
     """Result of a document ingestion use case.
 
     Attributes:
-        source:     The source identifier of the ingested document.
-        num_chunks: Number of chunks produced.
+        source:      The source identifier of the ingested document.
+        num_chunks:  Number of chunks produced.
+        num_triples: Number of knowledge-graph triples extracted.
     """
 
     source: str
     num_chunks: int
+    num_triples: int = 0
 
 
 @dataclass(frozen=True)
