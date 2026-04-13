@@ -152,7 +152,28 @@ hybrid-rag graph --format triples
 
 # Export as DOT (pipe to Graphviz for visualisation)
 hybrid-rag graph --format dot | dot -Tpng -o graph.png
+
+# Interactive HTML (open in browser — zoom, pan, drag nodes)
+hybrid-rag graph --format html
 ```
+
+### Web UI
+
+```bash
+# Launch the Gradio interface on port 7860
+hybrid-rag web
+
+# Custom port
+hybrid-rag web --port 8080
+```
+
+The web UI has three tabs:
+
+| Tab | What It Shows |
+|---|---|
+| **Ingest** | Upload PDFs, set chunk size, see progress log and the resulting knowledge graph |
+| **Query** | Ask questions — shows the LLM answer, a highlighted graph (matched entities in yellow, 2-hop neighbours in orange), an RRF fusion table with per-chunk scores and which path contributed, and which graph entities were matched |
+| **Graph** | Full interactive knowledge-graph explorer with refresh |
 
 ---
 
@@ -203,7 +224,8 @@ src/hybrid_rag/
 │   └── pypdf/
 │       └── reader.py       # PyPDFDocumentReader
 └── presentation/
-    └── cli.py              # Typer CLI (ingest, query, graph)
+    ├── cli.py              # Typer CLI (ingest, query, graph, web)
+    └── web.py              # Gradio web UI
 
 tests/
 ├── test_use_cases.py       # Smoke tests with fake adapters

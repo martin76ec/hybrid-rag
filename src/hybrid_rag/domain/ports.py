@@ -93,6 +93,13 @@ class GraphStore(ABC):
         """Return all triples in the graph."""
         ...
 
+    def extract_entity_mentions(self, question: str) -> list[str]:
+        """Return entity nodes in the graph that match the question.
+
+        Default implementation returns an empty list; adapters may override.
+        """
+        return []
+
 
 class TripleExtractor(ABC):
     """Port for extracting knowledge-graph triples from text."""

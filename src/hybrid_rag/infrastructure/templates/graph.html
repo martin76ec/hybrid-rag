@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Knowledge Graph</title>
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a2e; font-family: 'Segoe UI', Arial, sans-serif; }
+        #graph { width: 100%; height: 100vh; border: none; }
+        #legend {
+            position: absolute; top: 12px; left: 12px;
+            background: rgba(26,26,46,0.85); border: 1px solid #333;
+            border-radius: 8px; padding: 10px 14px; z-index: 10;
+            color: #e0e0e0; font-size: 13px;
+        }
+        #legend h3 { margin: 0 0 6px 0; font-size: 14px; color: #fff; }
+        .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        #stats {
+            position: absolute; bottom: 12px; left: 12px;
+            background: rgba(26,26,46,0.85); border: 1px solid #333;
+            border-radius: 8px; padding: 8px 14px; z-index: 10;
+            color: #aaa; font-size: 12px;
+        }
+        #search {
+            position: absolute; top: 12px; right: 12px; z-index: 10;
+            display: flex; gap: 6px;
+        }
+        #search input {
+            background: #2a2a4a; border: 1px solid #444; border-radius: 6px;
+            color: #e0e0e0; padding: 6px 10px; font-size: 13px; width: 220px;
+        }
+        #search input::placeholder { color: #666; }
+        #search button {
+            background: #4361ee; border: none; border-radius: 6px;
+            color: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer;
+        }
+        #search button:hover { background: #5a7bff; }
+    </style>
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+    <div id="legend">
+        <h3>Legend</h3>
+        <div id="legend-items"></div>
+    </div>
+    <div id="search">
+        <input type="text" id="searchInput" placeholder="Search nodes...">
+        <button onclick="focusNode()">Focus</button>
+    </div>
+    <div id="graph"></div>
+    <div id="stats"></div>
+
+    <script type="text/javascript">
+        const GRAPH_DATA = __GRAPH_DATA__;
+        const HIGHLIGHTED = __HIGHLIGHTED_NODES__;
+
+        const container = document.getElementById('graph');
+
+        const nodes = new vis.DataSet(GRAPH_DATA.nodes.map(n => {
+            const isHighlighted = HIGHLIGHTED.includes(n.id);
+            const isNeighbour = !isHighlighted && n._neighbour;
+            return {
+                ...n,
+                size: isHighlighted ? 40 : (isNeighbour ? 28 : 20),
+                borderWidth: isHighlighted ? 3 : 1,
+                borderWidthSelected: 4,
+            };
+        }));
+
+        const edges = new vis.DataSet(GRAPH_DATA.edges.map(e => {
+            const isHighlighted = HIGHLIGHTED.includes(e.from) || HIGHLIGHTED.includes(e.to);
+            return {
+                ...e,
+                color: isHighlighted ? { color: '#00f5d4', highlight: '#00f5d4', hover: '#00f5d4' } : { color: '#555555', highlight: '#888888', hover: '#888888' },
+                width: isHighlighted ? 2 : 1,
+                smooth: { type: 'curvedCW', roundness: 0.15 },
+            };
+        }));
+
+        const options = {
+            nodes: {
+                shape: 'dot',
+                font: { color: '#e0e0e0', size: 12, face: 'Segoe UI, Arial' },
+                shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 10 },
+            },
+            edges: {
+                arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+                font: { color: '#999', size: 10, face: 'Segoe UI, Arial', strokeWidth: 0 },
+                smooth: { type: 'curvedCW', roundness: 0.15 },
+            },
+            physics: {
+                forceAtlas2Based: {
+                    gravitationalConstant: -80,
+                    centralGravity: 0.01,
+                    springLength: 150,
+                    springConstant: 0.08,
+                },
+                solver: 'forceAtlas2Based',
+                stabilization: { iterations: 200 },
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 150,
+                zoomView: true,
+                dragNodes: true,
+                navigationButtons: true,
+            },
+            layout: { improvedLayout: true },
+        };
+
+        const network = new vis.Network(container, { nodes, edges }, options);
+
+        document.getElementById('stats').textContent =
+            `Nodes: ${GRAPH_DATA.nodes.length}  |  Edges: ${GRAPH_DATA.edges.length}`;
+
+        // Legend
+        const sourceColors = {};
+        GRAPH_DATA.nodes.forEach(n => {
+            const src = n._source || 'unknown';
+            if (!sourceColors[src]) sourceColors[src] = n.color;
+        });
+        const legendEl = document.getElementById('legend-items');
+        Object.entries(sourceColors).forEach(([src, color]) => {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${src}`;
+            legendEl.appendChild(item);
+        });
+
+        // Search
+        function focusNode() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            if (!query) return;
+            const allNodes = nodes.get();
+            const match = allNodes.find(n => n.label.toLowerCase().includes(query));
+            if (match) {
+                network.focus(match.id, { scale: 1.5, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+                network.selectNodes([match.id]);
+            }
+        }
+        document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') focusNode(); });
+    </script>
+</body>
+</html>

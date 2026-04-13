@@ -1,13 +1,15 @@
 """Command-line interface for the hybrid-RAG project.
 
-The CLI is built with **typer** and exposes three commands:
+The CLI is built with **typer** and exposes four commands:
 
 1. ``ingest`` – read PDFs, chunk text, embed via Ollama, store vectors in
    FAISS, extract knowledge-graph triples via LLM, and store in NetworkX.
 2. ``query`` – ask a question; vector + graph results are fused with RRF
    and passed to the LLM for answer generation.
 3. ``graph`` – inspect the knowledge graph (node/edge counts, triple dump,
-   or DOT export for visualisation).
+   DOT export, or interactive HTML visualisation).
+4. ``web`` – launch the Gradio web UI with ingest, query (with retrieval
+   provenance), and graph explorer tabs.
 """
 
 import sys
@@ -106,7 +108,7 @@ def query_cmd(
 @app.command(name="graph")
 def graph_cmd(
     format: str = typer.Option(
-        "summary", "-f", "--format", help="Output format: summary, triples, dot"
+        "summary", "-f", "--format", help="Output format: summary, triples, dot, html"
     ),
 ) -> None:
     """Inspect the knowledge graph."""
@@ -138,8 +140,27 @@ def graph_cmd(
         lines.append("}")
         rprint("\n".join(lines))
 
+    elif format == "html":
+        output = str(Path(cfg.graph_store_path) / "knowledge_graph.html")
+        store.render_graph(output)
+        rprint(f"[green]Interactive graph written to:[/green] {output}")
+        rprint("[dim]Open in a browser to explore.[/dim]")
+
     else:
-        rprint(f"[red]Unknown format:[/red] {format}. Use summary, triples, or dot.")
+        rprint(
+            f"[red]Unknown format:[/red] {format}. Use summary, triples, dot, or html."
+        )
+
+
+@app.command(name="web")
+def web_cmd(
+    port: int = typer.Option(7860, "-p", "--port", help="Port to serve the UI on"),
+) -> None:
+    """Launch the Gradio web interface."""
+    from ..presentation.web import build_app
+
+    app = build_app()
+    app.launch(server_name="0.0.0.0", server_port=port)
 
 
 if __name__ == "__main__":

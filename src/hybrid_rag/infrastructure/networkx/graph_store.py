@@ -3,6 +3,9 @@
 Stores triples as a directed multigraph in NetworkX and persists to JSON.
 Supports neighbour-based retrieval: given query entities, expand to
 neighbouring nodes and return the associated chunk metadata.
+
+Uses vis-network.js (same rendering engine as Neo4j Browser) for graph
+visualisation — rendered as standalone HTML with data embedded as JSON.
 """
 
 from __future__ import annotations
@@ -16,8 +19,20 @@ import networkx as nx
 
 from ...domain.ports import GraphStore
 from ...domain.value_objects import ChunkMetadata, RetrievalResult, Triple
+from ..templates.renderer import render_graph_html
 
 log = logging.getLogger(__name__)
+
+PALETTE = [
+    "#4cc9f0",
+    "#f72585",
+    "#7209b7",
+    "#3a0ca3",
+    "#4361ee",
+    "#4895ef",
+    "#560bad",
+    "#480ca8",
+]
 
 
 class NetworkXGraphStore(GraphStore):
@@ -88,6 +103,89 @@ class NetworkXGraphStore(GraphStore):
                     Triple(subject=u, predicate=data.get("predicate", ""), obj=v)
                 )
         return triples
+
+    def extract_entity_mentions(self, question: str) -> list[str]:
+        return self._extract_entity_mentions(question)
+
+    def render_graph(
+        self, output_path: str, matched_entities: list[str] | None = None
+    ) -> str:
+        """Render the graph as a vis-network.js HTML file (Neo4j Browser style).
+
+        If *matched_entities* is provided, those nodes are highlighted in
+        yellow and their 2-hop neighbours in orange.
+        """
+        source_colors: dict[str, str] = {}
+        color_idx = 0
+        matched_set = set(matched_entities or [])
+
+        neighbour_set: set[str] = set()
+        if matched_entities:
+            ne = self._extract_entity_mentions(" ".join(matched_entities))
+            for entity in ne:
+                if entity in self._graph:
+                    neighbour_set.update(
+                        nx.single_source_shortest_path_length(
+                            self._graph, entity, cutoff=2
+                        )
+                    )
+
+        nodes = []
+        for node_id in self._graph.nodes:
+            chunks = self._entity_to_chunks.get(node_id, [])
+            src = Path(chunks[0].source).stem if chunks else "unknown"
+            if src not in source_colors:
+                source_colors[src] = PALETTE[color_idx % len(PALETTE)]
+                color_idx += 1
+
+            if node_id in matched_set:
+                color = "#ffd60a"
+            elif node_id in neighbour_set:
+                color = "#ff9e00"
+            else:
+                color = source_colors[src]
+
+            title_parts = [f"<b>{node_id}</b><br>Source: {src}"]
+            for c in chunks[:3]:
+                title_parts.append(
+                    f"Chunk {c.chunk_index}: {c.text[:80]}..."
+                    if len(c.text) > 80
+                    else f"Chunk {c.chunk_index}: {c.text}"
+                )
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": node_id,
+                    "color": color,
+                    "title": "<br>".join(title_parts),
+                    "_source": src,
+                    "_neighbour": node_id in neighbour_set,
+                }
+            )
+
+        highlight_edges: set[tuple[str, str]] = set()
+        if matched_entities:
+            for e in self._extract_entity_mentions(" ".join(matched_entities)):
+                if e in self._graph:
+                    for n in nx.single_source_shortest_path_length(
+                        self._graph, e, cutoff=2
+                    ):
+                        highlight_edges.add((e, n))
+                        highlight_edges.add((n, e))
+
+        edges = []
+        for u, v, data in self._graph.edges(data=True):
+            edges.append(
+                {
+                    "from": u,
+                    "to": v,
+                    "label": data.get("predicate", ""),
+                }
+            )
+
+        return render_graph_html(
+            nodes, edges, output_path, highlighted_nodes=matched_entities
+        )
 
     def _extract_entity_mentions(self, question: str) -> list[str]:
         words = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", question)

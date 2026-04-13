@@ -35,3 +35,64 @@ class QueryResult:
 
     answer: str
     sources: list[str]
+
+
+@dataclass(frozen=True)
+class RetrievalStep:
+    """A single chunk's retrieval information for one path.
+
+    Attributes:
+        source:      Source file of the chunk.
+        chunk_index: Index of the chunk within the source.
+        text:        Chunk text (truncated for display).
+        rank:        Position in this path's ranked list (1-based).
+        score:       Raw retrieval score from this path.
+    """
+
+    source: str
+    chunk_index: int
+    text: str
+    rank: int
+    score: float
+
+
+@dataclass(frozen=True)
+class FusedChunk:
+    """A chunk after reciprocal rank fusion with provenance info.
+
+    Attributes:
+        source:       Source file of the chunk.
+        chunk_index:  Index of the chunk within the source.
+        text:         Chunk text.
+        rrf_score:    Final fused RRF score.
+        vector_rank:  Rank in vector path (0 = not present).
+        graph_rank:   Rank in graph path (0 = not present).
+        path:         Which paths contributed: 'vector', 'graph', or 'both'.
+    """
+
+    source: str
+    chunk_index: int
+    text: str
+    rrf_score: float
+    vector_rank: int = 0
+    graph_rank: int = 0
+    path: str = ""
+
+
+@dataclass(frozen=True)
+class QueryDetailedResult:
+    """Verbose query result exposing intermediate retrieval states.
+
+    Attributes:
+        answer:         The LLM-generated answer.
+        vector_results: Chunks retrieved by the vector path.
+        graph_results:  Chunks retrieved by the graph path.
+        fused_results:  Chunks after RRF fusion.
+        graph_entities: Entity nodes matched from the query.
+    """
+
+    answer: str
+    vector_results: list[RetrievalStep]
+    graph_results: list[RetrievalStep]
+    fused_results: list[FusedChunk]
+    graph_entities: list[str]

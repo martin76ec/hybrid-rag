@@ -72,7 +72,14 @@ class OllamaTripleExtractor(TripleExtractor):
             s = str(item.get("subject") or "").strip()
             p = str(item.get("predicate") or "").strip()
             o = str(item.get("object") or "").strip()
-            if s and p and o:
+            if (
+                s
+                and p
+                and o
+                and s.lower() != "null"
+                and p.lower() != "null"
+                and o.lower() != "null"
+            ):
                 triples.append(Triple(subject=s, predicate=p, obj=o, source=source))
         return triples
 

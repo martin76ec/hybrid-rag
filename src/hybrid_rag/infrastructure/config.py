@@ -29,6 +29,9 @@ class Config:
       ``<project_root>/faiss_index``)
     - ``GRAPH_STORE_PATH`` – path to persist the knowledge graph (default
       ``<project_root>/graph_store``)
+    - ``NEO4J_URI`` – Neo4j connection URI (default ``bolt://localhost:7687``)
+    - ``NEO4J_USER`` – Neo4j username (default ``neo4j``)
+    - ``NEO4J_PASSWORD`` – Neo4j password (default ``password``)
     """
 
     ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -40,3 +43,6 @@ class Config:
     graph_store_path: str = os.getenv(
         "GRAPH_STORE_PATH", str(PROJECT_ROOT / "graph_store")
     )
+    neo4j_uri: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user: str = os.getenv("NEO4J_USER", "neo4j")
+    neo4j_password: str = os.getenv("NEO4J_PASSWORD", "password")

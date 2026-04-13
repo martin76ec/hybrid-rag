@@ -12,6 +12,8 @@ dependencies = [
     "networkx>=3.3",
     "rich>=13.7",
     "requests>=2.31",
+    "gradio>=5.0",
+    "neo4j>=5.0",
 ]
 
 [project.scripts]
