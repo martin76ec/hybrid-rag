@@ -9,6 +9,7 @@ from hybrid_rag.domain.ports import (
     LanguageModel,
     GraphStore,
     TripleExtractor,
+    TripleRefiner,
 )
 from hybrid_rag.domain.entities import Document
 from hybrid_rag.domain.value_objects import (
@@ -92,6 +93,16 @@ class FakeTripleExtractor(TripleExtractor):
         ]
 
 
+class FakeTripleRefiner(TripleRefiner):
+    def refine(self, raw_triples):
+        return {
+            "canonical_mapping": {},
+            "shortened_predicates": [],
+            "removed_triples": [],
+            "added_triples": [],
+        }
+
+
 def test_ingest():
     store = FakeStore()
     use_case = IngestDocumentUseCase(
@@ -108,12 +119,14 @@ def test_ingest_with_graph():
     store = FakeStore()
     graph_store = FakeGraphStore()
     extractor = FakeTripleExtractor()
+    refiner = FakeTripleRefiner()
     use_case = IngestDocumentUseCase(
         reader=FakeReader(),
         embedder=FakeEmbedder(),
         store=store,
         triple_extractor=extractor,
         graph_store=graph_store,
+        triple_refiner=refiner,
     )
     result = use_case.execute("test.pdf", chunk_size=10, overlap=2)
     assert result.num_triples > 0

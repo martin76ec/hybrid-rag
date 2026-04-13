@@ -43,6 +43,7 @@ class NetworkXGraphStore(GraphStore):
         self._graph: nx.MultiDiGraph
         self._triple_sources: dict[int, Triple] = {}
         self._entity_to_chunks: dict[str, list[ChunkMetadata]] = {}
+        self._entity_vectors: dict[str, list[float]] = {}
         self._load_or_create()
 
     def add_triples(self, triples: list[Triple]) -> None:
@@ -106,6 +107,10 @@ class NetworkXGraphStore(GraphStore):
 
     def extract_entity_mentions(self, question: str) -> list[str]:
         return self._extract_entity_mentions(question)
+
+    def set_entity_vectors(self, vectors: dict[str, list[float]]) -> None:
+        self._entity_vectors.update(vectors)
+        self._persist_vectors()
 
     def render_graph(
         self, output_path: str, matched_entities: list[str] | None = None
@@ -188,6 +193,17 @@ class NetworkXGraphStore(GraphStore):
         )
 
     def _extract_entity_mentions(self, question: str) -> list[str]:
+        regex_entities = self._regex_match(question)
+        if self._entity_vectors:
+            semantic_entities = self._semantic_match(question)
+            seen = set(regex_entities)
+            for e in semantic_entities:
+                if e not in seen:
+                    regex_entities.append(e)
+                    seen.add(e)
+        return regex_entities
+
+    def _regex_match(self, question: str) -> list[str]:
         words = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", question)
         entities: list[str] = []
         matched: set[str] = set()
@@ -198,6 +214,21 @@ class NetworkXGraphStore(GraphStore):
                     matched.add(node)
                     break
         return entities
+
+    def _semantic_match(self, question: str) -> list[str]:
+        if not self._entity_vectors:
+            return []
+        q_words = question.split()
+        scored: list[tuple[float, str]] = []
+        for entity, _vec in self._entity_vectors.items():
+            entity_words = entity.lower().split()
+            hits = sum(1 for w in q_words if w.lower() in entity_words)
+            if hits == 0:
+                continue
+            score = hits / max(len(entity_words), 1)
+            scored.append((score, entity))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [e for _, e in scored[:10]]
 
     def _persist(self) -> None:
         self._path.mkdir(parents=True, exist_ok=True)
@@ -215,10 +246,19 @@ class NetworkXGraphStore(GraphStore):
         (self._path / "entity_chunks.json").write_text(
             json.dumps(meta, ensure_ascii=False), encoding="utf-8"
         )
+        self._persist_vectors()
+
+    def _persist_vectors(self) -> None:
+        self._path.mkdir(parents=True, exist_ok=True)
+        if self._entity_vectors:
+            (self._path / "entity_vectors.json").write_text(
+                json.dumps(self._entity_vectors, ensure_ascii=False), encoding="utf-8"
+            )
 
     def _load_or_create(self) -> None:
         graph_file = self._path / "graph.json"
         chunks_file = self._path / "entity_chunks.json"
+        vectors_file = self._path / "entity_vectors.json"
         if graph_file.is_file():
             data = json.loads(graph_file.read_text(encoding="utf-8"))
             self._graph = nx.node_link_graph(data, directed=True, multigraph=True)
@@ -235,3 +275,5 @@ class NetworkXGraphStore(GraphStore):
                 ]
                 for k, v in raw.items()
             }
+        if vectors_file.is_file():
+            self._entity_vectors = json.loads(vectors_file.read_text(encoding="utf-8"))

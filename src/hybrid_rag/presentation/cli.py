@@ -29,6 +29,7 @@ from ..infrastructure.ollama import (
     OllamaEmbeddingProvider,
     OllamaLanguageModel,
     OllamaTripleExtractor,
+    OllamaTripleRefiner,
 )
 from ..infrastructure.pypdf import PyPDFDocumentReader
 
@@ -43,13 +44,16 @@ def _wire_ingest_use_case() -> IngestDocumentUseCase:
     """Construct the ingest use case with all concrete dependencies."""
     cfg = _cfg()
     triple_extractor = OllamaTripleExtractor(cfg.ollama_host, cfg.llm_model)
+    triple_refiner = OllamaTripleRefiner(cfg.ollama_host, cfg.llm_model)
     graph_store = NetworkXGraphStore(cfg.graph_store_path)
+    embedder = OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model)
     return IngestDocumentUseCase(
         reader=PyPDFDocumentReader(),
-        embedder=OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model),
+        embedder=embedder,
         store=FAISSVectorStore(cfg.faiss_index_path),
         triple_extractor=triple_extractor,
         graph_store=graph_store,
+        triple_refiner=triple_refiner,
     )
 
 
@@ -85,6 +89,22 @@ def ingest_cmd(
                 f"[green]Ingested:[/green] {pdf_path} "
                 f"({result.num_chunks} chunks, {result.num_triples} triples)"
             )
+            if result.extraction_summary:
+                s = result.extraction_summary
+                rprint(f"  [dim]Raw triples:[/dim] {len(s.raw_triples)}")
+                if s.canonical_mapping:
+                    rprint(
+                        f"  [dim]Canonical entities:[/dim] {len(s.canonical_mapping)} merged"
+                    )
+                if s.shortened_predicates:
+                    rprint(
+                        f"  [dim]Shortened predicates:[/dim] {len(s.shortened_predicates)}"
+                    )
+                if s.removed_triples:
+                    rprint(f"  [dim]Removed trivial:[/dim] {len(s.removed_triples)}")
+                if s.added_triples:
+                    rprint(f"  [dim]Added missing:[/dim] {len(s.added_triples)}")
+                rprint(f"  [dim]Final triples:[/dim] {len(s.refined_triples)}")
         except Exception as exc:
             rprint(f"[red]Error ingesting {pdf_path}: {exc}")
             sys.exit(1)

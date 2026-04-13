@@ -100,6 +100,13 @@ class GraphStore(ABC):
         """
         return []
 
+    def set_entity_vectors(self, vectors: dict[str, list[float]]) -> None:
+        """Store entity embedding vectors for semantic matching.
+
+        Default implementation does nothing; adapters may override.
+        """
+        pass
+
 
 class TripleExtractor(ABC):
     """Port for extracting knowledge-graph triples from text."""
@@ -107,4 +114,20 @@ class TripleExtractor(ABC):
     @abstractmethod
     def extract(self, text: str, source: str) -> list[Triple]:
         """Extract (subject, predicate, object) triples from *text*."""
+        ...
+
+
+class TripleRefiner(ABC):
+    """Port for refining raw triples: canonical entities, short predicates,
+    removing trivial ones, and suggesting missing edges."""
+
+    @abstractmethod
+    def refine(self, raw_triples: list[Triple]) -> dict:
+        """Refine raw triples and return a dict with:
+
+        - ``canonical_mapping``: ``{raw_entity: canonical_entity}``
+        - ``shortened_predicates``: ``[{before, after}]``
+        - ``removed_indices``: indices of triples to drop
+        - ``added_triples``: ``[{subject, predicate, object}]``
+        """
         ...

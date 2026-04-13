@@ -6,22 +6,37 @@ presentation layers without leaking domain internals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ExtractionSummary:
+    """Step-by-step summary of the extraction pipeline for display.
+
+    Attributes:
+        raw_triples:         All raw triples before refinement.
+        canonical_mapping:   Entity names mapped to their canonical form.
+                             e.g. {"NovaMind": "NovaMind Technologies"}.
+        shortened_predicates: Before→after pairs for predicate shortening.
+        removed_triples:     Triples judged trivial or useless by the refiner.
+        added_triples:       Triples the refiner suggested as missing.
+        refined_triples:     Final triples after all corrections.
+    """
+
+    raw_triples: list[tuple[str, str, str]] = field(default_factory=list)
+    canonical_mapping: dict[str, str] = field(default_factory=dict)
+    shortened_predicates: list[tuple[str, str]] = field(default_factory=list)
+    removed_triples: list[tuple[str, str, str]] = field(default_factory=list)
+    added_triples: list[tuple[str, str, str]] = field(default_factory=list)
+    refined_triples: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class IngestResult:
-    """Result of a document ingestion use case.
-
-    Attributes:
-        source:      The source identifier of the ingested document.
-        num_chunks:  Number of chunks produced.
-        num_triples: Number of knowledge-graph triples extracted.
-    """
-
     source: str
     num_chunks: int
     num_triples: int = 0
+    extraction_summary: ExtractionSummary | None = None
 
 
 @dataclass(frozen=True)

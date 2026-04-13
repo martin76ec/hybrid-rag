@@ -35,6 +35,7 @@ from hybrid_rag.infrastructure.ollama import (
     OllamaEmbeddingProvider,
     OllamaLanguageModel,
     OllamaTripleExtractor,
+    OllamaTripleRefiner,
 )
 from hybrid_rag.infrastructure.pypdf import PyPDFDocumentReader
 from hybrid_rag.domain.value_objects import ChunkMetadata
@@ -66,6 +67,7 @@ def e2e_env():
     reader = PyPDFDocumentReader()
     llm = OllamaLanguageModel(cfg.ollama_host, cfg.llm_model)
     triple_extractor = OllamaTripleExtractor(cfg.ollama_host, cfg.llm_model)
+    triple_refiner = OllamaTripleRefiner(cfg.ollama_host, cfg.llm_model)
     graph_store = NetworkXGraphStore(graph_dir)
 
     ingest_uc = IngestDocumentUseCase(
@@ -74,6 +76,7 @@ def e2e_env():
         store=store,
         triple_extractor=triple_extractor,
         graph_store=graph_store,
+        triple_refiner=triple_refiner,
     )
     query_uc = QueryKnowledgeBaseUseCase(
         embedder=embedder,

@@ -20,6 +20,7 @@ from ..infrastructure.ollama import (
     OllamaEmbeddingProvider,
     OllamaLanguageModel,
     OllamaTripleExtractor,
+    OllamaTripleRefiner,
 )
 from ..infrastructure.pypdf import PyPDFDocumentReader
 
@@ -54,21 +55,24 @@ def _embed_graph_html(path: str) -> str:
 def ingest_tab(files, chunk_size, progress=gr.Progress()):
     cfg, store, graph = _wire()
     if not files:
-        return "No files uploaded.", ""
+        return "No files uploaded.", "", ""
 
     embedder = OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model)
     extractor = OllamaTripleExtractor(cfg.ollama_host, cfg.llm_model)
+    refiner = OllamaTripleRefiner(cfg.ollama_host, cfg.llm_model)
     uc = IngestDocumentUseCase(
         reader=PyPDFDocumentReader(),
         embedder=embedder,
         store=store,
         triple_extractor=extractor,
         graph_store=graph,
+        triple_refiner=refiner,
     )
 
     total_chunks = 0
     total_triples = 0
     log_lines: list[str] = []
+    last_summary = None
 
     for i, f in enumerate(files, 1):
         path = f.name if hasattr(f, "name") else str(f)
@@ -80,18 +84,32 @@ def ingest_tab(files, chunk_size, progress=gr.Progress()):
         log_lines.append(
             f"  {name}: {result.num_chunks} chunks, {result.num_triples} triples"
         )
+        if result.extraction_summary:
+            last_summary = result.extraction_summary
 
-    summary = (
+    ingest_log = (
         f"Ingested {len(files)} file(s)\n"
         f"Total chunks: {total_chunks}\n"
         f"Total triples: {total_triples}\n\n" + "\n".join(log_lines)
     )
 
+    extraction_log = ""
+    if last_summary:
+        s = last_summary
+        extraction_log = (
+            f"Raw triples extracted: {len(s.raw_triples)}\n"
+            f"Entities canonicalized: {len(s.canonical_mapping)}\n"
+            f"Predicates shortened: {len(s.shortened_predicates)}\n"
+            f"Trivial triples removed: {len(s.removed_triples)}\n"
+            f"Missing edges added: {len(s.added_triples)}\n"
+            f"Final triples in graph: {len(s.refined_triples)}"
+        )
+
     graph = NetworkXGraphStore(cfg.graph_store_path)
     html_path = os.path.join(cfg.graph_store_path, "knowledge_graph.html")
     graph.render_graph(html_path)
 
-    return summary, _embed_graph_html(html_path)
+    return ingest_log, extraction_log, _embed_graph_html(html_path)
 
 
 def query_tab(question, top_k, progress=gr.Progress()):
@@ -162,12 +180,15 @@ def build_app() -> gr.Blocks:
                 )
                 ingest_btn = gr.Button("Ingest", variant="primary")
                 ingest_log = gr.Textbox(label="Ingest log", lines=8, interactive=False)
+                extraction_log = gr.Textbox(
+                    label="Extraction pipeline", lines=6, interactive=False
+                )
                 ingest_graph = gr.HTML(label="Knowledge graph")
 
                 ingest_btn.click(
                     fn=ingest_tab,
                     inputs=[files, chunk_size],
-                    outputs=[ingest_log, ingest_graph],
+                    outputs=[ingest_log, extraction_log, ingest_graph],
                 )
 
             with gr.Tab("Query"):
