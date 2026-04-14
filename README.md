@@ -21,7 +21,7 @@ Vector similarity + knowledge graph retrieval, layered under clean architecture.
 
 <div align="center">
 
-[](https://github.com/martin76ec/hybrid-rag/blob/main/images/cap.gif)
+![](./images/cap.gif)
 
 </div>
 
