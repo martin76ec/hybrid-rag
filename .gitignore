@@ -29,3 +29,4 @@ Thumbs.db
 
 .pytest_cache
 .ruff_cache
+graph_store
