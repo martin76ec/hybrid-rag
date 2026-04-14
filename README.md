@@ -14,303 +14,95 @@ Vector similarity + knowledge graph retrieval, layered under clean architecture.
 
 ---
 
-## Why Hybrid-RAG?
+## Demo
 
-Most RAG pipelines stop at vector search. Hybrid-RAG is built to combine **dense vector retrieval** with **knowledge graph traversal** — two complementary paradigms that catch different kinds of relevance:
+<!-- Replace the placeholder below with your video embed when ready.
+     For GitHub: use an mp4 in the repo  →  https://github.com/user/repo/assets/demo.mp4
+     For an external video: use an HTML video tag or a GIF. -->
 
-| Retrieval Type | Good At | Misses |
-|---|---|---|
-| Vector Search (FAISS) | Semantic similarity, fuzzy concepts | Exact relationships, multi-hop reasoning |
-| Knowledge Graph (NetworkX) | Structured relationships, multi-hop queries | Vague or paraphrased concepts |
+<div align="center">
 
-Hybrid-RAG runs both and fuses the results via **Reciprocal Rank Fusion** — so you get the best of both worlds.
+https://github.com/user-attachments/assets/your-video-id.mp4
 
----
-
-## Architecture
-
-Hybrid-RAG follows **Domain-Driven Design** with a strict **Ports & Adapters** (Hexagonal) architecture. Every infrastructure dependency is hidden behind an abstract port, making the core domain fully testable and framework-agnostic.
-
-```
-┌─────────────────────────────────────────────┐
-│              Presentation (CLI)              │
-│                   Typer                      │
-├─────────────────────────────────────────────┤
-│            Application (Use Cases)           │
-│        IngestDocument · QueryKnowledge       │
-├─────────────────────────────────────────────┤
-│               Domain (Core)                  │
-│   Entities · Value Objects · Ports · Services │
-├──────────┬──────────┬──────────┬────────────┤
-│  Ollama  │  FAISS   │  PyPDF   │  NetworkX  │
-│  Embed   │  Index   │  Reader  │   Graph    │
-│  Ollama  │  Store   │          │   Store    │
-│   LLM    │          │          │  Triple    │
-│          │          │          │  Extractor │
-└──────────┴──────────┴──────────┴────────────┘
-```
-
-**Key design choices:**
-
-- **No LangChain. No LlamaIndex.** Raw HTTP to Ollama, direct FAISS — zero AI-framework bloat.
-- **Fully swappable adapters.** Swap FAISS for Qdrant, Ollama for OpenAI, PyPDF for Unstructured — without touching business logic.
-- **Testable by design.** Smoke tests use fake implementations that pass without any external service running.
+</div>
 
 ---
 
-## Features
+## How Document Ingest Works
 
-- **PDF Ingestion** — Extract text from any PDF and chunk it into overlapping segments
-- **Overlapping Chunks** — Configurable chunk size and overlap to preserve context across boundaries
-- **Vector Embedding** — Dense embeddings via Ollama (default: `nomic-embed-text`)
-- **FAISS Index** — Persistent L2 similarity index with JSONL metadata sidecar
-- **Knowledge Graph** — LLM-extracted entity-relation triples stored in a NetworkX directed multigraph with JSON persistence
-- **Hybrid Retrieval** — Vector search + graph neighbour traversal fused via Reciprocal Rank Fusion (RRF)
-- **LLM-Powered Q&A** — Generate grounded answers from fused context via Ollama (default: `llama3.2`)
-- **Source Attribution** — Every answer includes the source chunks used to generate it
-- **CLI Interface** — Beautiful terminal output with `rich` formatting, including a `graph` inspect command
-- **Full Config** — Environment-based configuration, zero hard-coded paths
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Requirement | Install |
-|---|---|
-| Python ≥ 3.10 | [python.org](https://www.python.org/) |
-| [Ollama](https://ollama.ai) | `curl -fsSL https://ollama.ai/install.sh \| sh` |
-| [uv](https://github.com/astral-sh/uv) (recommended) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-
-### 1. Pull the models
-
-```bash
-ollama pull nomic-embed-text
-ollama pull llama3.2
-```
-
-### 2. Install Hybrid-RAG
-
-```bash
-git clone https://github.com/your-org/hybrid-rag.git && cd hybrid-rag
-uv sync           # or: pip install -e .
-```
-
-### 3. Configure
-
-```bash
-cp .env.example .env
-# Edit .env — defaults work out of the box with local Ollama
-```
-
-### 4. Ingest & Query
-
-```bash
-# Ingest PDFs into the vector store and knowledge graph
-hybrid-rag ingest ./papers/attention-is-all-you-need.pdf
-
-# Ask questions (uses hybrid retrieval: vector + graph via RRF)
-hybrid-rag query "What is the main contribution of the Transformer architecture?"
-```
-
----
-
-## Usage
-
-### Ingest
-
-```bash
-# Single document
-hybrid-rag ingest ./document.pdf
-
-# Multiple documents
-hybrid-rag ingest ./doc1.pdf ./doc2.pdf ./doc3.pdf
-
-# Custom chunk size
-hybrid-rag ingest ./document.pdf --chunk-size 1000
-```
-
-### Query
-
-```bash
-# Basic query (returns top 5 fused chunks as context)
-hybrid-rag query "Explain the methodology used in this paper"
-
-# Retrieve more context
-hybrid-rag query "Summarize the results" --top-k 10
-```
-
-### Knowledge Graph
-
-```bash
-# Summary (node and edge counts)
-hybrid-rag graph
-
-# Dump all triples
-hybrid-rag graph --format triples
-
-# Export as DOT (pipe to Graphviz for visualisation)
-hybrid-rag graph --format dot | dot -Tpng -o graph.png
-
-# Interactive HTML (open in browser — zoom, pan, drag nodes)
-hybrid-rag graph --format html
-```
-
-### Web UI
-
-```bash
-# Launch the Gradio interface on port 7860
-hybrid-rag web
-
-# Custom port
-hybrid-rag web --port 8080
-```
-
-The web UI has three tabs:
-
-| Tab | What It Shows |
-|---|---|
-| **Ingest** | Upload PDFs, set chunk size, see progress log and the resulting knowledge graph |
-| **Query** | Ask questions — shows the LLM answer, a highlighted graph (matched entities in yellow, 2-hop neighbours in orange), an RRF fusion table with per-chunk scores and which path contributed, and which graph entities were matched |
-| **Graph** | Full interactive knowledge-graph explorer with refresh |
-
----
-
-## Configuration
-
-All configuration is managed through environment variables (`.env` file):
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model name |
-| `LLM_MODEL` | `llama3.2` | Language model for generation and triple extraction |
-| `FAISS_INDEX_PATH` | `./faiss_index` | Directory for persistent FAISS index |
-| `GRAPH_STORE_PATH` | `./graph_store` | Directory for persistent knowledge graph |
-
-### Chunking Parameters
-
-| Parameter | Default | Description |
-|---|---|---|
-| `chunk_size` | `500` | Characters per chunk |
-| `overlap` | `50` | Overlap characters between consecutive chunks |
-
----
-
-## Project Structure
+Ingestion is a **6-step pipeline** that turns a PDF into two parallel representations: a **dense vector index** (FAISS) and a **symbolic knowledge graph** (NetworkX). Every step preserves provenance so chunks can be traced back to the exact passage they came from.
 
 ```
-src/hybrid_rag/
-├── domain/
-│   ├── entities.py        # Document, Chunk
-│   ├── value_objects.py   # EmbeddingVector, ChunkMetadata, RetrievalResult, Triple
-│   ├── ports.py           # EmbeddingProvider, VectorStore, LanguageModel, DocumentReader, GraphStore, TripleExtractor
-│   └── services.py        # chunk_text(), reciprocal_rank_fusion()
-├── application/
-│   ├── dtos.py            # IngestResult, QueryResult
-│   ├── ingest.py          # IngestDocumentUseCase
-│   └── query.py           # QueryKnowledgeBaseUseCase
-├── infrastructure/
-│   ├── config.py           # Config dataclass (env-driven)
-│   ├── ollama/
-│   │   ├── embeddings.py   # OllamaEmbeddingProvider
-│   │   ├── llm.py          # OllamaLanguageModel
-│   │   └── triple_extractor.py  # OllamaTripleExtractor
-│   ├── faiss/
-│   │   └── vector_store.py # FAISSVectorStore
-│   ├── networkx/
-│   │   └── graph_store.py  # NetworkXGraphStore
-│   └── pypdf/
-│       └── reader.py       # PyPDFDocumentReader
-└── presentation/
-    ├── cli.py              # Typer CLI (ingest, query, graph, web)
-    └── web.py              # Gradio web UI
-
-tests/
-├── test_use_cases.py       # Smoke tests with fake adapters
-├── test_e2e.py             # End-to-end quality metrics
-└── fixtures/
-    └── pdf_factory.py      # Synthetic test PDF generator
+┌──────────────────────────────────────────────────────────────┐
+│                        PDF DOCUMENT                          │
+└──────────────┬───────────────────────────────────────────────┘
+               │
+        ┌──────▼──────┐
+        │  1. READ &   │  PyPDF extracts raw text
+        │    CHUNK     │  Word-boundary splitting (no split words)
+        └──────┬──────┘
+               │
+          ┌────┴────┐
+          │         │
+   ┌──────▼──┐  ┌──▼──────────┐
+   │ 2. EMBED │  │ 3. EXTRACT  │
+   │  chunks  │  │  raw triples │
+   │ → FAISS  │  │  per chunk   │
+   └──────┬──┘  └──┬──────────┘
+          │        │
+          │  ┌─────▼──────────┐
+          │  │ 4. REFINE       │
+          │  │    triples      │
+          │  │ canonicalize    │
+          │  │ shorten         │
+          │  │ remove trivial  │
+          │  │ add missing    │
+          │  └─────┬──────────┘
+          │        │
+          │  ┌─────▼──────────┐
+          │  │ 5. EMBED        │
+          │  │    entities     │
+          │  │ → entity vectors│
+          │  └─────┬──────────┘
+          │        │
+          │  ┌─────▼──────────┐
+          │  │ 6. BUILD GRAPH  │
+          │  │ NetworkX +     │
+          │  │ entity→chunks  │
+          │  └─────┬──────────┘
+          │        │
+   ┌──────▼────────▼──────┐
+   │    TWO PARALLEL      │
+   │    REPRESENTATIONS    │
+   │  FAISS vectors  │  NetworkX graph
+   └──────────────────────┘
 ```
 
----
+### Step 1 — Read & Chunk
 
-## Roadmap
+PyPDF extracts the raw text from every page. The text is then split into overlapping chunks with **word-boundary snapping** — chunk boundaries always land on whitespace, so entity names like "NovaMind Technologies" are never split into `"N"` + `"ovaMind"`.
 
-- [ ] **Batch Embedding** — Parallel embedding for large document sets
-- [ ] **Approximate FAISS Index** — IVF/HNSW for sub-linear search at scale
-- [ ] **Sentence-Aware Chunking** — Split on sentence boundaries instead of fixed characters
-- [ ] **Additional Adapters** — Qdrant, Chroma, OpenAI, Unstructured.io
-- [ ] **API Server** — FastAPI/REST interface alongside CLI
-
----
-
-## Running Tests
-
-```bash
-# Unit tests (no external services needed)
-pytest tests/test_use_cases.py
-
-# E2E tests (requires Ollama running with nomic-embed-text + llama3.2)
-pytest tests/test_e2e.py -v
+```
+Chunk 0:  "NovaMind Technologies was founded in 2018 by Dr. Elena
+           Vasquez and Raj Patel in Austin, Texas. The company
+           specializes in neuromorphic computing chips..."
+Chunk 1:  "...and Raj Patel in Austin, Texas. The company specializes
+           in neuromorphic computing chips that mimic biological
+           neural networks. Their flagship product..."
 ```
 
----
+Parameters: `chunk_size` (default 500 chars) and `overlap` (default 50 chars).
 
-## E2E Quality Metrics
+### Step 2 — Embed Chunks
 
-The E2E tests use two **synthetic PDFs** with deliberately planted facts — every entity name, numeric value, and relationship is known in advance, so we can measure exactly what the pipeline extracts, retrieves, and generates. All examples below are from an **actual pipeline run** (Ollama + FAISS + NetworkX), not hypothetical.
+Each chunk is sent to `nomic-embed-text` via Ollama, producing a 768-dimensional float vector. Vectors and their metadata `(source, chunk_index, text)` are written to:
 
-### Test Corpus
+- **FAISS `IndexFlatL2`** — for fast L2-nearest-neighbour search at query time
+- **`metadata.jsonl`** — a sidecar file that maps vector positions back to chunk text and source
 
-**`tech_company.pdf`** — a fictional annual report for NovaMind Technologies:
+### Step 3 — Extract Raw Triples
 
-| Category | Fact Planted in PDF |
-|---|---|
-| Founders | Dr. Elena Vasquez, Raj Patel |
-| HQ | Austin, Texas |
-| Product | Cortex-7 processor |
-| Performance | 120 tera-ops/sec, 15 watts, 8x more efficient than competitors |
-| Revenue FY2024 | $340 million (62% YoY increase) |
-| Employees | 1,250 across Austin, Berlin, Singapore |
-| CTO | Raj Patel; Board chair: General Marcus Webb (retired) |
-| R&D | 47 papers, 89 patents, $95M budget (2025) |
-| Manufacturing | Dresden, Germany; 5nm process; 94.2% yield; 1,800 die sites/wafer |
-| Price | $4,200 per unit |
-| Partners | Quantum Dynamics Ltd, MIT, Heidelberg University, ETH Zurich |
-| IPO | Q3 2025, target valuation $5.8 billion |
-
-**`clinical_trial.pdf`** — a fictional Phase III trial (VXC-204):
-
-| Category | Fact Planted in PDF |
-|---|---|
-| Drug | Veratralimab 300mg IV every 4 weeks |
-| Indication | Advanced pulmonary sarcoidosis (Stage III/IV) |
-| Principal Investigator | Dr. Amara Okafor, MD, PhD, University of Michigan |
-| Sponsor | Veritas Biopharma Inc. |
-| Enrollment | 648 participants, 42 sites, 9 countries |
-| Primary endpoint | FVC % predicted change at week 52: +6.8pp vs -0.4 placebo (p < 0.001) |
-| Secondary endpoint | SGRQ total score: -7.5 vs -1.2 placebo (p = 0.003) |
-| Responder rate | 58% (treatment) vs 19% (placebo) achieved ≥5% FVC improvement |
-| Top adverse events | URTI 12.3%, fatigue 9.8%, infusion reactions 7.1% |
-| Serious AEs | Pneumocystis pneumonia (1), grade 3 hepatotoxicity (2) |
-| Pharmacokinetics | Half-life 18.6 days, steady state by week 12 |
-| Subgroup | HLA-DRB1\*04 allele → +9.3pp FVC improvement |
-| Regulatory | FDA BLA Q1 2025, EMA Q2 2025 |
-
----
-
-### How the Pipeline Processes a Test PDF
-
-After text extraction, the PDF is split into overlapping chunks (400 chars, 60-char overlap). Here is **chunk 0 from the actual run**:
-
-> *NovaMind Technologies Annual Report 2024*
-> *NovaMind Technologies was founded in 2018 by Dr. Elena Vasquez and Raj Patel in Austin, Texas. The company specializes in neuromorphic computing chips that mimic biological neural networks. Their flagship product, the Cortex-7 processor, achieves 120 tera-operations per second while consuming only 15 watts of power, which is 8x more efficient than competing*
-
-**Step 1 — Embedding (vector path):** The chunk text is sent to `nomic-embed-text` via Ollama, producing a 768-dim float vector. This vector + the chunk metadata `(source, chunk_index, text)` are written to the FAISS `IndexFlatL2` and the `metadata.jsonl` sidecar. The full ingest produced **6 chunks** for the tech company PDF and **7 chunks** for the clinical trial PDF.
-
-**Step 2 — Triple extraction (graph path):** The same chunk text is sent to the LLM with this prompt:
+Each chunk is independently sent to the LLM with an extraction prompt:
 
 ```
 Extract knowledge-graph triples from the following text.
@@ -318,212 +110,211 @@ Return ONLY a JSON array of objects with keys "subject", "predicate", "object".
 Each value must be a non-null string.
 
 Text:
-NovaMind Technologies was founded in 2018 by Dr. Elena Vasquez and Raj Patel...
+NovaMind Technologies was founded in 2018 by Dr. Elena Vasquez and...
 ```
 
-Here are the **actual triples the LLM extracted** across all chunks (25 total from both PDFs):
+The LLM returns triples like:
 
-```
-TECH COMPANY PDF (15 triples, 36 nodes, 25 edges):
-  (Marcus Webb,               was chaired by,        the board of directors)
-  (Dr. Yuki Tanaka,           led,                  NovaMind's research division)
-  (NovaMind's research division, published,         47 peer-reviewed papers in 2024...)
-  (NovaMind's research division, holds,              89 patents globally)
-  (NovaMind's research division, has,                23 additional patents pending)
-  (NovaMind,                  has R&D budget,         $95 million)
-  (NovaMind,                  had R&D budget,         $72 million)
-  (Cortex-7 processor,        is manufactured at,    NovaMind's fabrication facility in Dresden)
-  (EuroChip Foundries,        licensed process node to, NovaMind)
-  (NovaMind,                  part of,               European Neuromorphic Computing Consortium)
-  (NovaMind,                  part of,               Heidelberg University)
-  (NovaMind,                  part of,               ETH Zurich)
-  (NovaMind,                  planned IPO,           Q3 2025)
-  (NovaMind,                  target valuation,      $5.8 billion)
-
-CLINICAL TRIAL PDF (10 triples):
-  (VXC-204,                   Study Protocol,        A Phase III RCT of Veratralimab...)
-  (adverse events...,         were characterized by,  upper respiratory tract infection (12.3%))
-  (adverse events...,         were characterized by,  fatigue (9.8%))
-  (adverse events...,         were characterized by,  mild infusion reactions (7.1%))
-  (Three patients,            due to,                serious adverse events)
-  (Veratralimab,              be approved by,        the FDA)
-  (Veratralimab,              be indicated for,      advanced pulmonary sarcoidosis)
-  (Veratralimab,              be approved to,        the EMA)
+```json
+[
+  {"subject": "NovaMind Technologies", "predicate": "was founded by", "object": "Dr. Elena Vasquez"},
+  {"subject": "NovaMind Technologies", "predicate": "was founded by", "object": "Raj Patel"},
+  {"subject": "Cortex-7 processor", "predicate": "consumes", "object": "15 watts of power"}
+]
 ```
 
-Every triple is enriched with `source`, `chunk_index`, and `chunk_text` from the originating chunk, so the graph can trace back to the exact passage.
+Every triple is **enriched with provenance** — `source` (PDF filename), `chunk_index`, and `chunk_text` — so the graph can always trace back to the originating passage.
 
-**Step 3 — Graph construction:** `NetworkXGraphStore.add_triples()` does two things simultaneously:
+### Step 4 — Refine Triples
 
-1. **Creates edges** in a directed multigraph: `NovaMind ──planned IPO──▶ Q3 2025`, `Cortex-7 processor ──is manufactured at──▶ NovaMind's fabrication facility in Dresden`, etc.
-2. **Builds the entity→chunks index**: maps each entity node to the `ChunkMetadata` of the chunk that mentioned it. From the actual run:
+All raw triples from all chunks are collected and sent to a **second LLM pass** in batches of 35. The refiner performs four tasks:
 
-| Entity Node | Points to Chunk |
-|---|---|
-| `"NovaMind"` | `tech_company.pdf` chunk 3 |
-| `"Cortex-7 processor"` | `tech_company.pdf` chunk 3 |
-| `"Dr. Yuki Tanaka"` | `tech_company.pdf` chunk 2 |
-| `"Marcus Webb"` | `tech_company.pdf` chunk 2 |
-| `"Veratralimab"` | `clinical_trial.pdf` chunks 4, 5, 6 |
-
-This index is the **bridge between the graph and the vector store** — it's what lets the graph return `RetrievalResult` objects with the same `ChunkMetadata` format that FAISS returns, enabling fusion downstream.
-
-Each chunk therefore creates **two parallel representations**: a dense vector in FAISS and a set of symbolic edges in NetworkX.
-
----
-
-### How a Query Traverses Both Stores
-
-When the user asks **"Who founded NovaMind Technologies?"**:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     USER QUERY                           │
-│          "Who founded NovaMind Technologies?"             │
-└───────────────┬─────────────────────┬───────────────────┘
-                │                     │
-        ┌───────▼───────┐     ┌───────▼────────┐
-        │  VECTOR PATH  │     │   GRAPH PATH   │
-        │               │     │                │
-        │  embed query  │     │  regex tokenize│
-        │  via Ollama   │     │  ["Who",       │
-        │      ↓        │     │   "founded",   │
-        │  FAISS L2     │     │   "NovaMind"]  │
-        │  search       │     │      ↓         │
-        │      ↓        │     │  match nodes   │
-        │  top-5 chunks │     │  containing    │
-        │  ranked by    │     │  "NovaMind" →  │
-        │  distance     │     │  "NovaMind"    │
-        │               │     │      ↓         │
-        │               │     │  2-hop BFS     │
-        │               │     │  traversal     │
-        │               │     │      ↓         │
-        │               │     │  entity→chunks │
-        │               │     │  index:        │
-        │               │     │  NovaMind →    │
-        │               │     │  chunk 3       │
-        └───────┬───────┘     └───────┬────────┘
-                │                     │
-        ┌───────▼─────────────────────▼───────┐
-        │       RECIPROCAL RANK FUSION         │
-        │                                      │
-        │  For each chunk (identified by       │
-        │  source + chunk_index):              │
-        │    score = Σ 1/(60 + rank)           │
-        │    across both ranked lists          │
-        │                                      │
-        │  Chunks in BOTH lists get a          │
-        │  boosted score → promoted            │
-        └──────────────────┬───────────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │  top-k      │
-                    │  fused      │
-                    │  chunks     │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │  LLM prompt │
-                    │  context +  │
-                    │  question   │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │   ANSWER    │
-                    └─────────────┘
-```
-
-**Vector path** — the question embedding is compared against all chunk vectors via L2 distance. This catches semantic similarity even when the question uses different words than the source text.
-
-**Graph path** — the question is tokenized (`"NovaMind"` → regex match against graph nodes → hits `"NovaMind"` in the graph). Then a 2-hop BFS finds neighbours (e.g. `"$95 million"` at 1 hop, `"European Neuromorphic Computing Consortium"` at 1 hop). The `entity_to_chunks` index retrieves the originating chunk text for each matched/visited node.
-
-**RRF fusion** — both paths produce ranked lists of `(ChunkMetadata, score)`. A chunk appearing in **both** lists accumulates `1/(60 + rank_vector) + 1/(60 + rank_graph)`, giving it a higher fused score than any chunk from a single list. Chunks that are both semantically similar *and* connected to the query entities get priority.
-
----
-
-### What Each Metric Measures
-
-#### 1. Retrieval Precision @ K (5 tests)
-
-> Does the retrieval pipeline find chunks from the **right PDF**?
-
-Each question targets one specific document. For example, *"What is the power consumption of the Cortex-7 processor?"* should return chunks from `tech_company.pdf`, not `clinical_trial.pdf`. This validates that the embedding space correctly distinguishes between two very different domains.
-
-**Actual answer**: *"The Cortex-7 processor consumes 15 watts of power."* — sourced from `tech_company.pdf`.
-
-**Pass condition**: the correct source filename appears in the top-5 fused results.
-
-#### 2. Answer Keyword Overlap (5 tests)
-
-> Does the LLM answer mention the **specific entities and facts** from the source?
-
-The question *"Who founded NovaMind Technologies?"* has expected keywords `["Elena Vasquez", "Raj Patel", "Austin"]`.
-
-**Actual answer**: *"Dr. Elena Vasquez and Raj Patel co-founded NovaMind Technologies in 2018."* — 2 of 3 keywords matched (67% overlap).
-
-An answer like *"NovaMind was founded by its current leadership team"* would score 0% — grammatically correct but factually empty.
-
-**Pass condition**: ≥ 30% of expected keywords appear in the answer.
-
-#### 3. Answer Groundedness (2 tests)
-
-> Does the answer state the **exact numeric facts** and avoid **planted wrong numbers**?
-
-| Question | Ground Truth | Planted Negatives |
+| Task | What It Does | Example |
 |---|---|---|
-| *"How much revenue did NovaMind report in FY2024?"* | `"$340 million"` | `"$500 million"`, `"$200 million"`, `"$1 billion"` |
-| *"How many participants were enrolled in VXC-204?"* | `"648"` | `"1000"`, `"500"`, `"2000"` |
+| **Canonicalize entities** | Merge duplicate or variant entity names | `"NovaMind"` → `"NovaMind Technologies"` |
+| **Shorten predicates** | Reduce long predicates to 1-3 words | `"was chaired by the board of directors"` → `"chairs"` |
+| **Remove trivial** | Drop triples with no real information | `("X", "is", "Y")` with no meaningful relation |
+| **Add missing** | Suggest edges logically implied by existing triples | `("NovaMind Technologies", "develops", "Cortex-7 processor")` |
 
-**Actual answers**:
-- *"NovaMind reported $340 million in revenue for fiscal year 2024, representing a 62% year-over-year increase."* — correct number present, no planted negatives.
-- *"648 participants were enrolled in the VXC-204 clinical trial."* — correct number present, no planted negatives.
+Batches are merged with first-batch-wins conflict resolution for canonical mappings. The refinement output looks like:
 
-The planted negatives are plausible but wrong — if the LLM outputs one, it's hallucinating rather than reading context. This catches the most dangerous failure mode: a confident, specific, but fabricated statistic.
+```
+Extraction pipeline:
+  Raw triples extracted: 23
+  Entities canonicalized: 1
+  Predicates shortened: 2
+  Trivial triples removed: 3
+  Missing edges added: 1
+  Final triples in graph: 20
+```
 
-**Pass condition**: ground-truth number appears in answer; none of the planted negatives appear.
+### Step 5 — Embed Entity Names
 
-#### 4. Knowledge Graph Quality (5 tests)
+Each **canonical entity name** from the refined triples is embedded via `nomic-embed-text`. These entity vectors are stored alongside the graph and used at query time for **semantic entity matching** — so a query like "the company" can semantically match the node `"NovaMind Technologies"` even though there's no substring match.
 
-> Does the triple extractor build a real graph, and does it contribute to retrieval?
+### Step 6 — Build Knowledge Graph
 
-| Test | What It Checks |
-|---|---|
-| Graph has nodes | Extraction didn't fail silently — actual count: **36 nodes** |
-| Graph has edges | At least some relationships extracted — actual count: **25 edges** |
-| Graph persists | `graph.json` and `entity_chunks.json` are written to disk |
-| Known entities in triples | At least 1 of `NovaMind`, `Cortex-7`, `VXC-204`, `Veratralimab` appears — `NovaMind` and `Veratralimab` both present |
-| Graph enriches retrieval | Querying `"NovaMind Cortex-7 processor"` returns chunks via 2-hop neighbour traversal — entity matching hits `NovaMind` and `Cortex-7 processor` nodes, both of which map to `tech_company.pdf` chunk 3 |
+`NetworkXGraphStore.add_triples()` simultaneously:
 
----
+1. **Creates directed edges** in a NetworkX multigraph — each triple becomes `subject ──predicate──▶ object`
+2. **Builds the entity→chunks index** — maps every entity node to the `ChunkMetadata` of the chunk that mentioned it
 
-### Why These Four Dimensions?
+This index is the bridge between the graph and the vector store. It lets the graph return `RetrievalResult` objects with the same `ChunkMetadata` format that FAISS returns — enabling **Reciprocal Rank Fusion** downstream.
 
-They cover the full RAG quality stack end-to-end:
-
-| Dimension | Catches |
-|---|---|
-| Retrieval Precision | Wrong chunks retrieved → answer built on irrelevant context |
-| Keyword Overlap | LLM ignoring context → generic or evasive answers |
-| Groundedness | Hallucination → confident but fabricated numbers |
-| Graph Quality | Graph extraction failed or disconnected → hybrid adds no value over vector-only |
-
-Each metric is computed against deterministic test data (the planted facts above), so regressions are caught immediately without ambiguity.
+The graph is persisted to disk as `graph.json` (NetworkX node-link format) and `entity_vectors.json`, so it survives restarts.
 
 ---
 
-### Current Results (24/24 passing)
+## How We Build the Knowledge Graph Triples
 
-| Metric | Tests | Status |
-|---|---|---|
-| Retrieval Precision @ K | 5 | All pass |
-| Answer Keyword Overlap | 5 | All pass (>= 30%) |
-| Answer Groundedness | 2 | All pass (correct numbers, no hallucinations) |
-| Knowledge Graph | 5 | All pass (36 nodes, 25 edges, persistence, entities, retrieval) |
-| Ingestion Health | 3 | All pass (PDFs, index, metadata) |
-| Unit Smoke Tests | 4 | All pass (fake adapters) |
+The knowledge graph is built through a **two-pass LLM process**: extraction (per-chunk) then refinement (all-triples batched). This section walks through both passes in detail.
 
----
+### Pass 1: Per-Chunk Extraction
 
-## License
+Each chunk is independently prompted to produce triples. The LLM acts as a knowledge-graph engineer, identifying entities and their relationships within the text of that single chunk.
 
-Not yet licensed. Contact the author for usage rights.
+**Prompt:**
+
+```
+Extract knowledge-graph triples from the following text.
+Return ONLY a JSON array of objects with keys "subject", "predicate", "object".
+Each value must be a non-null string.
+
+Text:
+<chunk text here>
+```
+
+**Raw triples from the tech company PDF (actual output):**
+
+```
+0. (NovaMind Technologies, was founded by, Dr. Elena Vasquez)
+1. (NovaMind Technologies, was founded by, Raj Patel)
+2. (Cortex-7 processor, achieves, 120 tera-operations per second)
+3. (Cortex-7 processor, consumes, 15 watts of power)
+4. (Cortex-7 processor, is manufactured at, NovaMind's fabrication facility in Dresden)
+5. (NovaMind, was chaired by the board of directors, Marcus Webb)
+6. (NovaMind, has R&D budget, $95 million)
+7. (NovaMind, planned IPO, Q3 2025)
+8. (NovaMind, target valuation, $5.8 billion)
+...
+```
+
+Notice the problems this pass produces:
+
+- `"NovaMind"` and `"NovaMind Technologies"` are the same entity but appear under different names
+- `"was chaired by the board of directors"` is an overly long predicate
+- Some triples may be trivial or contain no useful information
+- Obvious connections like "NovaMind develops Cortex-7" might be missed because no single chunk explicitly states that exact relation
+
+This is why the **second pass** exists.
+
+### Pass 2: Batched Refinement
+
+All raw triples are collected and sent to the LLM in **batches of 35** (to stay within context limits). The refiner prompt asks for four specific tasks:
+
+**Prompt:**
+
+```
+You are a knowledge-graph engineer. Given the following raw triples
+extracted from documents, perform these tasks:
+
+1. canonical_entities: Map duplicate or variant entity names to a
+   single canonical form. Only include entities that need remapping.
+2. shortened_predicates: Shorten overly long predicates to 1-3 words.
+3. removed_indices: List indices of trivial/useless triples.
+4. added_triples: Suggest missing triples logically implied by
+   the existing ones. Be moderate — only clearly supported connections.
+
+IMPORTANT: Return ONLY valid JSON. No markdown, no code fences.
+```
+
+**Refiner output (actual example from a batch of 12 triples):**
+
+```json
+{
+  "canonical_entities": {},
+  "shortened_predicates": [
+    {"before": "was chaired by the board of directors", "after": "chairs"},
+    {"before": "consumes watts of power", "after": "power"}
+  ],
+  "removed_indices": [3, 9],
+  "added_triples": [
+    {"subject": "NovaMind Technologies", "predicate": "develops", "object": "Cortex-7 processor"}
+  ]
+}
+```
+
+**How batches are merged:**
+
+When there are more than 35 triples, the refiner processes multiple batches. Results are merged across batches:
+
+- **Canonical mappings** — dict merge, first batch wins on conflict
+- **Shortened predicates** — union, deduplicated by the `before` key
+- **Removed indices** — remapped to absolute positions across all triples
+- **Added triples** — union, deduplicated by `(subject, predicate, object)` tuple
+
+**After refinement, the same triples from the example become:**
+
+```
+0. (NovaMind Technologies, was founded by, Dr. Elena Vasquez)
+1. (NovaMind Technologies, was founded by, Raj Patel)
+2. (Cortex-7 processor, achieves, 120 tera-operations per second)
+   ← removed (trivial)
+3. (Cortex-7 processor, consumes, 15 watts of power)
+4. (Cortex-7 processor, is manufactured at, NovaMind's fabrication facility)
+5. (NovaMind Technologies, chairs, Marcus Webb)
+   ← shortened predicate
+   ← canonicalized "NovaMind" → "NovaMind Technologies"
+6. (NovaMind Technologies, has R&D budget, $95 million)
+7. (NovaMind Technologies, planned IPO, Q3 2025)
+8. (NovaMind Technologies, target valuation, $5.8 billion)
+ + (NovaMind Technologies, develops, Cortex-7 processor)
+   ← added missing edge
+```
+
+### Entity Embeddings for Semantic Graph Queries
+
+After refinement, each canonical entity name is embedded via `nomic-embed-text`. These vectors are stored in `entity_vectors.json` and used at query time for **semantic entity matching** alongside regex substring matching.
+
+```
+Query: "Who founded the company?"
+  Regex match:  "company" → no direct node match
+  Semantic match: embedding of "the company" has high cosine similarity
+                  with embedding of "NovaMind Technologies" → matched!
+  2-hop BFS from "NovaMind Technologies" → retrieves relevant chunks
+```
+
+This is how the graph path handles synonyms, pronouns, and paraphrased references that regex alone would miss.
+
+### Graph Visualization
+
+The knowledge graph is rendered using **vis-network.js** — the same rendering engine that powers Neo4j Browser. The visualization is a self-contained HTML file with graph data embedded as JSON, loaded from CDN. No external server required.
+
+Features:
+- **Force-directed layout** (ForceAtlas2) with physics simulation
+- **Colour-coded nodes** by source document
+- **Search** — type a node name to focus and select it
+- **Legend** showing which colour maps to which source
+- **Navigation** — zoom, pan, drag nodes, hover for chunk details
+- **Highlighted queries** — matched entities in yellow, 2-hop neighbours in orange, connecting edges in cyan
+
+### How Queries Fuse Both Stores
+
+When a question is asked, two retrieval paths run in parallel:
+
+```
+VECTOR PATH                    GRAPH PATH
+embed question → FAISS L2     extract entities → regex + semantic match
+top-k chunks ranked            → 2-hop BFS → entity→chunks lookup
+     │                              │
+     └────────┬─────────────────────┘
+              │
+       RECIPROCAL RANK FUSION
+       score = Σ 1/(60 + rank) per chunk
+       Chunks in BOTH lists get boosted
+              │
+         LLM generates answer
+         from fused context
+```
+
+Chunks that appear in **both** the vector and graph results accumulate `1/(60 + rank_vector) + 1/(60 + rank_graph)`, giving them a higher fused score than any single-path result. This means chunks that are both semantically relevant *and* connected to the query entities are promoted — combining the strengths of dense retrieval and symbolic traversal.
