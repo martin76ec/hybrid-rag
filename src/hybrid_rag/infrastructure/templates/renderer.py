@@ -17,6 +17,7 @@ def render_graph_html(
     edges: list[dict],
     output_path: str,
     highlighted_nodes: list[str] | None = None,
+    full_graph_data: dict | None = None,
 ) -> str:
     """Render a vis-network HTML file with embedded graph data.
 
@@ -26,6 +27,8 @@ def render_graph_html(
         edges:            List of edge dicts with ``from``, ``to``, ``label``.
         output_path:      Where to write the HTML file.
         highlighted_nodes: Node IDs to highlight (yellow, larger).
+        full_graph_data:  Optional full graph ``{"nodes": [...], "edges": [...]}``
+                          used for a toggle when the default view is filtered.
 
     Returns:
         The output_path string.
@@ -34,9 +37,14 @@ def render_graph_html(
 
     graph_data = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
     highlighted = json.dumps(highlighted_nodes or [])
+    full_data = (
+        json.dumps(full_graph_data, ensure_ascii=False) if full_graph_data else "null"
+    )
 
-    html = template.replace("__GRAPH_DATA__", graph_data).replace(
-        "__HIGHLIGHTED_NODES__", highlighted
+    html = (
+        template.replace("__GRAPH_DATA__", graph_data)
+        .replace("__HIGHLIGHTED_NODES__", highlighted)
+        .replace("__FULL_GRAPH_DATA__", full_data)
     )
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

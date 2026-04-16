@@ -35,6 +35,16 @@
             color: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer;
         }
         #search button:hover { background: #5a7bff; }
+        #toggleAll {
+            position: absolute; top: 12px; right: 310px; z-index: 10;
+            display: none;
+        }
+        #toggleAll button {
+            background: #2a2a4a; border: 1px solid #444; border-radius: 6px;
+            color: #e0e0e0; padding: 6px 14px; font-size: 13px; cursor: pointer;
+        }
+        #toggleAll button:hover { background: #3a3a5a; }
+        #toggleAll button.active { background: #4361ee; border-color: #4361ee; color: #fff; }
     </style>
     <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
 </head>
@@ -42,6 +52,9 @@
     <div id="legend">
         <h3>Legend</h3>
         <div id="legend-items"></div>
+    </div>
+    <div id="toggleAll">
+        <button id="toggleBtn" onclick="toggleGraph()">Show all nodes</button>
     </div>
     <div id="search">
         <input type="text" id="searchInput" placeholder="Search nodes...">
@@ -53,8 +66,13 @@
     <script type="text/javascript">
         const GRAPH_DATA = __GRAPH_DATA__;
         const HIGHLIGHTED = __HIGHLIGHTED_NODES__;
+        const FULL_GRAPH = __FULL_GRAPH_DATA__;
 
         const container = document.getElementById('graph');
+        let showingAll = false;
+
+        const toggleDiv = document.getElementById('toggleAll');
+        if (FULL_GRAPH) toggleDiv.style.display = 'flex';
 
         const nodes = new vis.DataSet(GRAPH_DATA.nodes.map(n => {
             const isHighlighted = HIGHLIGHTED.includes(n.id);
@@ -110,22 +128,7 @@
 
         const network = new vis.Network(container, { nodes, edges }, options);
 
-        document.getElementById('stats').textContent =
-            `Nodes: ${GRAPH_DATA.nodes.length}  |  Edges: ${GRAPH_DATA.edges.length}`;
-
-        // Legend
-        const sourceColors = {};
-        GRAPH_DATA.nodes.forEach(n => {
-            const src = n._source || 'unknown';
-            if (!sourceColors[src]) sourceColors[src] = n.color;
-        });
-        const legendEl = document.getElementById('legend-items');
-        Object.entries(sourceColors).forEach(([src, color]) => {
-            const item = document.createElement('div');
-            item.className = 'legend-item';
-            item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${src}`;
-            legendEl.appendChild(item);
-        });
+        updateStatsLegend(GRAPH_DATA);
 
         // Search
         function focusNode() {
@@ -139,6 +142,61 @@
             }
         }
         document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') focusNode(); });
+
+        function toggleGraph() {
+            const btn = document.getElementById('toggleBtn');
+            if (showingAll) {
+                showingAll = false;
+                btn.textContent = 'Show all nodes';
+                btn.classList.remove('active');
+                network.setData({
+                    nodes: new vis.DataSet(GRAPH_DATA.nodes.map(n => {
+                        const isH = HIGHLIGHTED.includes(n.id);
+                        const isN = !isH && n._neighbour;
+                        return { ...n, size: isH ? 40 : (isN ? 28 : 20), borderWidth: isH ? 3 : 1, borderWidthSelected: 4 };
+                    })),
+                    edges: new vis.DataSet(GRAPH_DATA.edges.map(e => {
+                        const isH = HIGHLIGHTED.includes(e.from) || HIGHLIGHTED.includes(e.to);
+                        return { ...e, color: isH ? { color: '#00f5d4', highlight: '#00f5d4', hover: '#00f5d4' } : { color: '#555555', highlight: '#888888', hover: '#888888' }, width: isH ? 2 : 1, smooth: { type: 'curvedCW', roundness: 0.15 } };
+                    })),
+                });
+                updateStatsLegend(GRAPH_DATA);
+            } else {
+                showingAll = true;
+                btn.textContent = 'Show related only';
+                btn.classList.add('active');
+                network.setData({
+                    nodes: new vis.DataSet(FULL_GRAPH.nodes.map(n => {
+                        const isH = HIGHLIGHTED.includes(n.id);
+                        const isN = !isH && n._neighbour;
+                        return { ...n, size: isH ? 40 : (isN ? 28 : 20), borderWidth: isH ? 3 : 1, borderWidthSelected: 4 };
+                    })),
+                    edges: new vis.DataSet(FULL_GRAPH.edges.map(e => {
+                        const isH = HIGHLIGHTED.includes(e.from) || HIGHLIGHTED.includes(e.to);
+                        return { ...e, color: isH ? { color: '#00f5d4', highlight: '#00f5d4', hover: '#00f5d4' } : { color: '#555555', highlight: '#888888', hover: '#888888' }, width: isH ? 2 : 1, smooth: { type: 'curvedCW', roundness: 0.15 } };
+                    })),
+                });
+                updateStatsLegend(FULL_GRAPH);
+            }
+        }
+
+        function updateStatsLegend(data) {
+            document.getElementById('stats').textContent =
+                `Nodes: ${data.nodes.length}  |  Edges: ${data.edges.length}`;
+            const sourceColors = {};
+            data.nodes.forEach(n => {
+                const src = n._source || 'unknown';
+                if (!sourceColors[src]) sourceColors[src] = n.color;
+            });
+            const legendEl = document.getElementById('legend-items');
+            legendEl.innerHTML = '';
+            Object.entries(sourceColors).forEach(([src, color]) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${src}`;
+                legendEl.appendChild(item);
+            });
+        }
     </script>
 </body>
 </html>

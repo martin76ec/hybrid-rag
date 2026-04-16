@@ -121,8 +121,9 @@ class NetworkXGraphStore(GraphStore):
     ) -> str:
         """Render the graph as a vis-network.js HTML file (Neo4j Browser style).
 
-        If *matched_entities* is provided, those nodes are highlighted in
-        yellow and their 2-hop neighbours in orange.
+        If *matched_entities* is provided, only those nodes, their 2-hop
+        neighbours, and the edges between them are shown by default (with a
+        toggle to reveal the full graph).
         """
         source_colors: dict[str, str] = {}
         color_idx = 0
@@ -139,7 +140,7 @@ class NetworkXGraphStore(GraphStore):
                         )
                     )
 
-        nodes = []
+        all_nodes: list[dict] = []
         for node_id in self._graph.nodes:
             chunks = self._entity_to_chunks.get(node_id, [])
             src = Path(chunks[0].source).stem if chunks else "unknown"
@@ -161,7 +162,7 @@ class NetworkXGraphStore(GraphStore):
                     if len(c.text) > 80
                     else f"Chunk {c.chunk_index}: {c.text}"
                 )
-            nodes.append(
+            all_nodes.append(
                 {
                     "id": node_id,
                     "label": node_id,
@@ -172,19 +173,9 @@ class NetworkXGraphStore(GraphStore):
                 }
             )
 
-        highlight_edges: set[tuple[str, str]] = set()
-        if matched_entities:
-            for e in self._extract_entity_mentions(" ".join(matched_entities)):
-                if e in self._graph:
-                    for n in nx.single_source_shortest_path_length(
-                        self._graph, e, cutoff=2
-                    ):
-                        highlight_edges.add((e, n))
-                        highlight_edges.add((n, e))
-
-        edges = []
+        all_edges: list[dict] = []
         for u, v, data in self._graph.edges(data=True):
-            edges.append(
+            all_edges.append(
                 {
                     "from": u,
                     "to": v,
@@ -192,8 +183,24 @@ class NetworkXGraphStore(GraphStore):
                 }
             )
 
+        if matched_entities:
+            visible_ids = neighbour_set
+            filtered_nodes = [n for n in all_nodes if n["id"] in visible_ids]
+            filtered_edges = [
+                e
+                for e in all_edges
+                if e["from"] in visible_ids and e["to"] in visible_ids
+            ]
+            return render_graph_html(
+                filtered_nodes,
+                filtered_edges,
+                output_path,
+                highlighted_nodes=matched_entities,
+                full_graph_data={"nodes": all_nodes, "edges": all_edges},
+            )
+
         return render_graph_html(
-            nodes, edges, output_path, highlighted_nodes=matched_entities
+            all_nodes, all_edges, output_path, highlighted_nodes=matched_entities
         )
 
     def _extract_entity_mentions(self, question: str) -> list[str]:
