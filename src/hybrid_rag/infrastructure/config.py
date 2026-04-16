@@ -46,3 +46,9 @@ class Config:
     neo4j_uri: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     neo4j_user: str = os.getenv("NEO4J_USER", "neo4j")
     neo4j_password: str = os.getenv("NEO4J_PASSWORD", "password")
+    ollama_max_retries: int = int(os.getenv("OLLAMA_MAX_RETRIES", "3"))
+    ollama_max_concurrency: int = int(os.getenv("OLLAMA_MAX_CONCURRENCY", "3"))
+    ollama_cache_dir: str = os.getenv(
+        "OLLAMA_CACHE_DIR", str(PROJECT_ROOT / "llm_cache")
+    )
+    log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()

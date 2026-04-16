@@ -6,7 +6,7 @@ own.  They describe *things* in the domain rather than *who* they are.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,24 @@ class Triple:
     source: str = ""
     chunk_index: int = 0
     chunk_text: str = ""
+
+
+@dataclass(frozen=True)
+class DocumentAnalysis:
+    """LLM-generated analysis of a document's structure and relevant triple patterns.
+
+    Attributes:
+        doc_type:                  What kind of document this is
+                                   (e.g. "clinical trial report", "10-K filing").
+        doc_description:           Short description of the document's content.
+        suggested_triple_patterns: Entity-relationship patterns that a knowledge
+                                   graph should capture from this kind of document
+                                   (e.g. ["company → founded_by → person"]).
+    """
+
+    doc_type: str = ""
+    doc_description: str = ""
+    suggested_triple_patterns: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

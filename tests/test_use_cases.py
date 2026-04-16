@@ -3,6 +3,7 @@
 from hybrid_rag.application.ingest import IngestDocumentUseCase
 from hybrid_rag.application.query import QueryKnowledgeBaseUseCase
 from hybrid_rag.domain.ports import (
+    DocumentAnalyzer,
     DocumentReader,
     EmbeddingProvider,
     VectorStore,
@@ -13,6 +14,7 @@ from hybrid_rag.domain.ports import (
 )
 from hybrid_rag.domain.entities import Document
 from hybrid_rag.domain.value_objects import (
+    DocumentAnalysis,
     EmbeddingVector,
     ChunkMetadata,
     RetrievalResult,
@@ -103,6 +105,15 @@ class FakeTripleRefiner(TripleRefiner):
         }
 
 
+class FakeDocumentAnalyzer(DocumentAnalyzer):
+    def analyze(self, text):
+        return DocumentAnalysis(
+            doc_type="test document",
+            doc_description="A test document for unit testing.",
+            suggested_triple_patterns=["entity → relates_to → concept"],
+        )
+
+
 def test_ingest():
     store = FakeStore()
     use_case = IngestDocumentUseCase(
@@ -131,6 +142,28 @@ def test_ingest_with_graph():
     result = use_case.execute("test.pdf", chunk_size=10, overlap=2)
     assert result.num_triples > 0
     assert graph_store.edge_count() == result.num_triples
+
+
+def test_ingest_with_document_analyzer():
+    store = FakeStore()
+    graph_store = FakeGraphStore()
+    extractor = FakeTripleExtractor()
+    refiner = FakeTripleRefiner()
+    doc_analyzer = FakeDocumentAnalyzer()
+    use_case = IngestDocumentUseCase(
+        reader=FakeReader(),
+        embedder=FakeEmbedder(),
+        store=store,
+        triple_extractor=extractor,
+        graph_store=graph_store,
+        triple_refiner=refiner,
+        document_analyzer=doc_analyzer,
+    )
+    result = use_case.execute("test.pdf", chunk_size=10, overlap=2)
+    assert result.num_triples > 0
+    assert result.extraction_summary is not None
+    assert result.extraction_summary.doc_type == "test document"
+    assert len(result.extraction_summary.suggested_triple_patterns) == 1
 
 
 def test_query():

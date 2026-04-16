@@ -14,15 +14,21 @@ class ExtractionSummary:
     """Step-by-step summary of the extraction pipeline for display.
 
     Attributes:
-        raw_triples:         All raw triples before refinement.
-        canonical_mapping:   Entity names mapped to their canonical form.
-                             e.g. {"NovaMind": "NovaMind Technologies"}.
-        shortened_predicates: Before→after pairs for predicate shortening.
-        removed_triples:     Triples judged trivial or useless by the refiner.
-        added_triples:       Triples the refiner suggested as missing.
-        refined_triples:     Final triples after all corrections.
+        doc_type:                  LLM-identified document type label.
+        doc_description:          LLM-generated one-sentence description.
+        suggested_triple_patterns: Entity-relationship patterns the LLM suggested.
+        raw_triples:               All raw triples before refinement.
+        canonical_mapping:         Entity names mapped to their canonical form.
+                                   e.g. {"NovaMind": "NovaMind Technologies"}.
+        shortened_predicates:      Before→after pairs for predicate shortening.
+        removed_triples:          Triples judged trivial or useless by the refiner.
+        added_triples:            Triples the refiner suggested as missing.
+        refined_triples:          Final triples after all corrections.
     """
 
+    doc_type: str = ""
+    doc_description: str = ""
+    suggested_triple_patterns: list[str] = field(default_factory=list)
     raw_triples: list[tuple[str, str, str]] = field(default_factory=list)
     canonical_mapping: dict[str, str] = field(default_factory=dict)
     shortened_predicates: list[tuple[str, str]] = field(default_factory=list)

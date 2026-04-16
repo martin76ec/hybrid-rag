@@ -10,7 +10,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from .entities import Document
-from .value_objects import ChunkMetadata, EmbeddingVector, RetrievalResult, Triple
+from .value_objects import (
+    ChunkMetadata,
+    DocumentAnalysis,
+    EmbeddingVector,
+    RetrievalResult,
+    Triple,
+)
 
 
 class EmbeddingProvider(ABC):
@@ -114,6 +120,28 @@ class TripleExtractor(ABC):
     @abstractmethod
     def extract(self, text: str, source: str) -> list[Triple]:
         """Extract (subject, predicate, object) triples from *text*."""
+        ...
+
+    def set_guidance(self, guidance: DocumentAnalysis | None) -> None:
+        """Provide document analysis guidance to steer extraction.
+
+        Default implementation is a no-op.  Adapters may override to use
+        the guidance when building extraction prompts.
+        """
+        pass
+
+
+class DocumentAnalyzer(ABC):
+    """Port for analysing a document's structure before triple extraction.
+
+    Produces a :class:`DocumentAnalysis` describing the document type and
+    suggesting which triple patterns are most relevant, so that the
+    :class:`TripleExtractor` can produce more focused extractions.
+    """
+
+    @abstractmethod
+    def analyze(self, text: str) -> DocumentAnalysis:
+        """Analyse *text* and return structural guidance for extraction."""
         ...
 
 

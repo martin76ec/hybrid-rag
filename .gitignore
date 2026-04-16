@@ -30,3 +30,4 @@ Thumbs.db
 .pytest_cache
 .ruff_cache
 graph_store
+llm_cache

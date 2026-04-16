@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-
-import requests
+import time
 
 from ...domain.ports import TripleExtractor
-from ...domain.value_objects import Triple
+from ...domain.value_objects import DocumentAnalysis, Triple
+from .client import OllamaClient
 
 log = logging.getLogger(__name__)
 
@@ -26,24 +26,64 @@ Do NOT include any other text, explanation, or markdown formatting.
 Text:
 {text}"""
 
+_GUIDED_EXTRACTION_PROMPT = """\
+Extract knowledge-graph triples from the following text.
+
+Document context: This is a {doc_type}. {doc_description}
+Focus on extracting these relationship patterns:
+{patterns}
+
+Return ONLY a JSON array of objects with keys "subject", "predicate", "object".
+Each value must be a non-null string.
+Do NOT include any other text, explanation, or markdown formatting.
+
+Text:
+{text}"""
+
 
 class OllamaTripleExtractor(TripleExtractor):
     """Concrete :class:`TripleExtractor` backed by the Ollama HTTP API."""
 
-    def __init__(self, host: str, model: str) -> None:
-        self._url = f"{host.rstrip('/')}/api/generate"
+    def __init__(self, client: OllamaClient, model: str) -> None:
+        self._client = client
         self._model = model
+        self._guidance: DocumentAnalysis | None = None
+
+    def set_guidance(self, guidance: DocumentAnalysis | None) -> None:
+        self._guidance = guidance
+        if guidance:
+            log.info(
+                "Extractor guidance set: doc_type=%s patterns=%d",
+                guidance.doc_type,
+                len(guidance.suggested_triple_patterns),
+            )
 
     def extract(self, text: str, source: str = "") -> list[Triple]:
-        prompt = _EXTRACTION_PROMPT.format(text=text)
-        resp = requests.post(
-            self._url,
-            json={"model": self._model, "prompt": prompt, "stream": False},
+        log.info(
+            "Extract triples model=%s text_len=%d source=%s guided=%s",
+            self._model,
+            len(text),
+            source,
+            bool(self._guidance),
+        )
+        t0 = time.perf_counter()
+        prompt = self._build_prompt(text)
+        resp = self._client.post(
+            "/api/generate",
+            body={"model": self._model, "prompt": prompt, "stream": False},
             timeout=120,
         )
-        resp.raise_for_status()
         raw = resp.json()["response"]
-        return self._parse(raw, source)
+        elapsed = time.perf_counter() - t0
+        triples = self._parse(raw, source)
+        log.info(
+            "Extract triples done model=%s triples=%d response_len=%d (%.2fs)",
+            self._model,
+            len(triples),
+            len(raw),
+            elapsed,
+        )
+        return triples
 
     @staticmethod
     def _parse(raw: str, source: str) -> list[Triple]:
@@ -62,6 +102,23 @@ class OllamaTripleExtractor(TripleExtractor):
 
         log.warning("No valid triples found in LLM output: %s", raw[:200])
         return []
+
+    def _build_prompt(self, text: str) -> str:
+        if self._guidance and (
+            self._guidance.doc_type or self._guidance.suggested_triple_patterns
+        ):
+            patterns = (
+                "\n".join(f"- {p}" for p in self._guidance.suggested_triple_patterns)
+                if self._guidance.suggested_triple_patterns
+                else "(use general judgement)"
+            )
+            return _GUIDED_EXTRACTION_PROMPT.format(
+                doc_type=self._guidance.doc_type or "document",
+                doc_description=self._guidance.doc_description or "",
+                patterns=patterns,
+                text=text,
+            )
+        return _EXTRACTION_PROMPT.format(text=text)
 
     @staticmethod
     def _from_dicts(items: list, source: str) -> list[Triple]:

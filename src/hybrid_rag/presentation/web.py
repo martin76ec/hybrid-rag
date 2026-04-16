@@ -8,36 +8,43 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Generator
 
 import gradio as gr
 
-from ..application.ingest import IngestDocumentUseCase
-from ..application.query import QueryKnowledgeBaseUseCase
+from ..application.ingest import INGEST_STEPS, IngestDocumentUseCase
+from ..application.query import QUERY_STEPS, QueryKnowledgeBaseUseCase
 from ..infrastructure.config import Config
 from ..infrastructure.faiss import FAISSVectorStore
+from ..infrastructure.logging import setup_logging
 from ..infrastructure.networkx import NetworkXGraphStore
 from ..infrastructure.ollama import (
+    OllamaClient,
+    OllamaDocumentAnalyzer,
     OllamaEmbeddingProvider,
     OllamaLanguageModel,
     OllamaTripleExtractor,
     OllamaTripleRefiner,
 )
 from ..infrastructure.pypdf import PyPDFDocumentReader
+from .stepper import render_stepper
 
 
-def _wire() -> tuple[Config, FAISSVectorStore, NetworkXGraphStore]:
+def _wire() -> tuple[Config, OllamaClient, FAISSVectorStore, NetworkXGraphStore]:
     cfg = Config()
+    setup_logging(cfg.log_level)
+    client = OllamaClient(
+        cfg.ollama_host,
+        max_retries=cfg.ollama_max_retries,
+        max_concurrency=cfg.ollama_max_concurrency,
+        cache_dir=cfg.ollama_cache_dir,
+    )
     store = FAISSVectorStore(cfg.faiss_index_path)
     graph = NetworkXGraphStore(cfg.graph_store_path)
-    return cfg, store, graph
+    return cfg, client, store, graph
 
 
 def _embed_graph_html(path: str) -> str:
-    """Read a standalone HTML file and embed it directly in Gradio.
-
-    The vis-network template is self-contained (loads vis.js from CDN),
-    so we can inline it in gr.HTML with an iframe using a data URI.
-    """
     if not os.path.isfile(path):
         return "<p>No graph data yet. Ingest some documents first.</p>"
     html_content = open(path, encoding="utf-8").read()
@@ -52,14 +59,16 @@ def _embed_graph_html(path: str) -> str:
     )
 
 
-def ingest_tab(files, chunk_size, progress=gr.Progress()):
-    cfg, store, graph = _wire()
+def ingest_tab(files, chunk_size) -> Generator:
+    cfg, client, store, graph = _wire()
     if not files:
-        return "No files uploaded.", "", ""
+        yield (render_stepper(INGEST_STEPS, -1), "No files uploaded.", "", "")
+        return
 
-    embedder = OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model)
-    extractor = OllamaTripleExtractor(cfg.ollama_host, cfg.llm_model)
-    refiner = OllamaTripleRefiner(cfg.ollama_host, cfg.llm_model)
+    embedder = OllamaEmbeddingProvider(client, cfg.embedding_model)
+    extractor = OllamaTripleExtractor(client, cfg.llm_model)
+    refiner = OllamaTripleRefiner(client, cfg.llm_model)
+    doc_analyzer = OllamaDocumentAnalyzer(client, cfg.llm_model)
     uc = IngestDocumentUseCase(
         reader=PyPDFDocumentReader(),
         embedder=embedder,
@@ -67,55 +76,104 @@ def ingest_tab(files, chunk_size, progress=gr.Progress()):
         triple_extractor=extractor,
         graph_store=graph,
         triple_refiner=refiner,
+        document_analyzer=doc_analyzer,
     )
 
     total_chunks = 0
     total_triples = 0
     log_lines: list[str] = []
-    last_summary = None
+    extraction_log = ""
 
     for i, f in enumerate(files, 1):
         path = f.name if hasattr(f, "name") else str(f)
-        progress(i / len(files), desc=f"Processing file {i}/{len(files)}")
-        result = uc.execute(path, chunk_size=int(chunk_size), overlap=60)
+        name = Path(path).stem
+        partial_log = f"Processing file {i}/{len(files)}…\n  ▶ {name}\n\n" + "\n".join(
+            log_lines
+        )
+        yield (render_stepper(INGEST_STEPS, -1), partial_log, "", "")
+
+        gen = uc.execute_stepped(path, chunk_size=int(chunk_size), overlap=60)
+        result = None
+        while True:
+            try:
+                step_idx, step_label = next(gen)
+                progress_log = (
+                    f"Processing file {i}/{len(files)}…  [{step_label}]\n\n"
+                    + "\n".join(log_lines)
+                )
+                yield (render_stepper(INGEST_STEPS, step_idx), progress_log, "", "")
+            except StopIteration as exc:
+                result = exc.value
+                break
+            except Exception as exc:
+                err_msg = f"❌ Error at step {step_label}: {exc}"
+                log_lines.append(f"  ✗ {name}: {exc}")
+                yield (render_stepper(INGEST_STEPS, step_idx), err_msg, "", "")
+                return
+
         total_chunks += result.num_chunks
         total_triples += result.num_triples
-        name = Path(path).stem
         log_lines.append(
-            f"  {name}: {result.num_chunks} chunks, {result.num_triples} triples"
+            f"  ✓ {name}: {result.num_chunks} chunks, {result.num_triples} triples"
         )
+        extraction_log = ""
         if result.extraction_summary:
-            last_summary = result.extraction_summary
+            s = result.extraction_summary
+            parts = [f"--- {name} ---"]
+            if s.doc_type:
+                parts.append(f"Document type: {s.doc_type}")
+            if s.doc_description:
+                parts.append(f"Description: {s.doc_description}")
+            if s.suggested_triple_patterns:
+                parts.append(
+                    f"Suggested triple patterns: {len(s.suggested_triple_patterns)}"
+                )
+                for p in s.suggested_triple_patterns:
+                    parts.append(f"  - {p}")
+            parts.extend(
+                [
+                    f"Raw triples extracted: {len(s.raw_triples)}",
+                    f"Entities canonicalized: {len(s.canonical_mapping)}",
+                    f"Predicates shortened: {len(s.shortened_predicates)}",
+                    f"Trivial triples removed: {len(s.removed_triples)}",
+                    f"Missing edges added: {len(s.added_triples)}",
+                    f"Final triples in graph: {len(s.refined_triples)}",
+                ]
+            )
+            extraction_log = "\n".join(parts)
+
+        progress_log = f"Processing file {i}/{len(files)}…\n\n" + "\n".join(log_lines)
+        if i < len(files):
+            progress_log += f"\n\nNext: file {i + 1}/{len(files)}…"
+        yield (
+            render_stepper(INGEST_STEPS, len(INGEST_STEPS) - 1),
+            progress_log,
+            extraction_log,
+            "",
+        )
 
     ingest_log = (
-        f"Ingested {len(files)} file(s)\n"
+        f"✅ Ingested {len(files)} file(s)\n"
         f"Total chunks: {total_chunks}\n"
         f"Total triples: {total_triples}\n\n" + "\n".join(log_lines)
     )
-
-    extraction_log = ""
-    if last_summary:
-        s = last_summary
-        extraction_log = (
-            f"Raw triples extracted: {len(s.raw_triples)}\n"
-            f"Entities canonicalized: {len(s.canonical_mapping)}\n"
-            f"Predicates shortened: {len(s.shortened_predicates)}\n"
-            f"Trivial triples removed: {len(s.removed_triples)}\n"
-            f"Missing edges added: {len(s.added_triples)}\n"
-            f"Final triples in graph: {len(s.refined_triples)}"
-        )
 
     graph = NetworkXGraphStore(cfg.graph_store_path)
     html_path = os.path.join(cfg.graph_store_path, "knowledge_graph.html")
     graph.render_graph(html_path)
 
-    return ingest_log, extraction_log, _embed_graph_html(html_path)
+    yield (
+        render_stepper(INGEST_STEPS, len(INGEST_STEPS) - 1),
+        ingest_log,
+        extraction_log,
+        _embed_graph_html(html_path),
+    )
 
 
-def query_tab(question, top_k, progress=gr.Progress()):
-    cfg, store, graph = _wire()
-    embedder = OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model)
-    llm = OllamaLanguageModel(cfg.ollama_host, cfg.llm_model)
+def query_tab(question, top_k) -> Generator:
+    cfg, client, store, graph = _wire()
+    embedder = OllamaEmbeddingProvider(client, cfg.embedding_model)
+    llm = OllamaLanguageModel(client, cfg.llm_model)
 
     uc = QueryKnowledgeBaseUseCase(
         embedder=embedder,
@@ -124,10 +182,30 @@ def query_tab(question, top_k, progress=gr.Progress()):
         graph_store=graph,
     )
 
-    progress(0.3, desc="Searching vector store and knowledge graph...")
-    result = uc.execute_verbose(question, top_k=int(top_k))
+    yield (render_stepper(QUERY_STEPS, -1), "", None, [], "")
 
-    progress(0.8, desc="Generating highlighted graph...")
+    gen = uc.execute_verbose_stepped(question, top_k=int(top_k))
+    result = None
+    step_label = ""
+    step_idx = -1
+    while True:
+        try:
+            step_idx, step_label = next(gen)
+            yield (
+                render_stepper(QUERY_STEPS, step_idx),
+                f"[{step_label}]…",
+                None,
+                [],
+                "",
+            )
+        except StopIteration as exc:
+            result = exc.value
+            break
+        except Exception as exc:
+            err_msg = f"❌ Error at step {step_label}: {exc}"
+            yield (render_stepper(QUERY_STEPS, step_idx), err_msg, None, [], "")
+            return
+
     html_path = os.path.join(cfg.graph_store_path, "query_graph.html")
     graph.render_graph(html_path, matched_entities=result.graph_entities)
 
@@ -151,11 +229,17 @@ def query_tab(question, top_k, progress=gr.Progress()):
         ", ".join(result.graph_entities) if result.graph_entities else "(none matched)"
     )
 
-    return result.answer, _embed_graph_html(html_path), rows, entities_text
+    yield (
+        render_stepper(QUERY_STEPS, len(QUERY_STEPS) - 1),
+        result.answer,
+        _embed_graph_html(html_path),
+        rows,
+        entities_text,
+    )
 
 
 def graph_tab():
-    cfg, _, graph = _wire()
+    cfg, _, _, graph = _wire()
     html_path = os.path.join(cfg.graph_store_path, "knowledge_graph.html")
     graph.render_graph(html_path)
     node_count = graph.node_count()
@@ -169,6 +253,10 @@ def build_app() -> gr.Blocks:
 
         with gr.Tabs():
             with gr.Tab("Ingest"):
+                ingest_stepper = gr.HTML(
+                    value=render_stepper(INGEST_STEPS, -1),
+                    label="Pipeline progress",
+                )
                 with gr.Row():
                     files = gr.File(
                         label="Upload PDFs",
@@ -179,19 +267,23 @@ def build_app() -> gr.Blocks:
                     100, 1000, value=400, step=50, label="Chunk size (chars)"
                 )
                 ingest_btn = gr.Button("Ingest", variant="primary")
-                ingest_log = gr.Textbox(label="Ingest log", lines=8, interactive=False)
+                ingest_log = gr.Textbox(label="Ingest log", lines=12, interactive=False)
                 extraction_log = gr.Textbox(
-                    label="Extraction pipeline", lines=6, interactive=False
+                    label="Extraction pipeline", lines=10, interactive=False
                 )
                 ingest_graph = gr.HTML(label="Knowledge graph")
 
                 ingest_btn.click(
                     fn=ingest_tab,
                     inputs=[files, chunk_size],
-                    outputs=[ingest_log, extraction_log, ingest_graph],
+                    outputs=[ingest_stepper, ingest_log, extraction_log, ingest_graph],
                 )
 
             with gr.Tab("Query"):
+                query_stepper = gr.HTML(
+                    value=render_stepper(QUERY_STEPS, -1),
+                    label="Pipeline progress",
+                )
                 question = gr.Textbox(
                     label="Question",
                     placeholder="Ask something about your documents...",
@@ -224,7 +316,13 @@ def build_app() -> gr.Blocks:
                 query_btn.click(
                     fn=query_tab,
                     inputs=[question, top_k],
-                    outputs=[answer, query_graph, results_table, matched],
+                    outputs=[
+                        query_stepper,
+                        answer,
+                        query_graph,
+                        results_table,
+                        matched,
+                    ],
                 )
 
             with gr.Tab("Graph"):

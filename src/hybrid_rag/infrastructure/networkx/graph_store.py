@@ -47,6 +47,7 @@ class NetworkXGraphStore(GraphStore):
         self._load_or_create()
 
     def add_triples(self, triples: list[Triple]) -> None:
+        log.info("Adding %d triples to knowledge graph", len(triples))
         for t in triples:
             self._graph.add_edge(t.subject, t.obj, predicate=t.predicate)
             edge_key = hash((t.subject, t.predicate, t.obj))
@@ -64,6 +65,7 @@ class NetworkXGraphStore(GraphStore):
 
     def query(self, question: str, top_k: int = 10) -> list[RetrievalResult]:
         entities = self._extract_entity_mentions(question)
+        log.info("Graph query: %d entities matched for question", len(entities))
         visited_nodes: set[str] = set()
         relevant_chunks: list[ChunkMetadata] = []
 
@@ -84,6 +86,7 @@ class NetworkXGraphStore(GraphStore):
             RetrievalResult(chunk=c, score=1.0 / (1 + i))
             for i, c in enumerate(relevant_chunks[:top_k])
         ]
+        log.info("Graph query returned %d results", len(results))
         return results
 
     def node_count(self) -> int:
@@ -109,6 +112,7 @@ class NetworkXGraphStore(GraphStore):
         return self._extract_entity_mentions(question)
 
     def set_entity_vectors(self, vectors: dict[str, list[float]]) -> None:
+        log.info("Setting %d entity vectors in graph store", len(vectors))
         self._entity_vectors.update(vectors)
         self._persist_vectors()
 

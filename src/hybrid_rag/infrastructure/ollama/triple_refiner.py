@@ -15,11 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-
-import requests
+import time
 
 from ...domain.ports import TripleRefiner
 from ...domain.value_objects import Triple
+from .client import OllamaClient
 
 log = logging.getLogger(__name__)
 
@@ -63,8 +63,8 @@ class OllamaTripleRefiner(TripleRefiner):
     Processes triples in batches of 35 to stay within LLM context limits.
     """
 
-    def __init__(self, host: str, model: str) -> None:
-        self._url = f"{host.rstrip('/')}/api/generate"
+    def __init__(self, client: OllamaClient, model: str) -> None:
+        self._client = client
         self._model = model
 
     def refine(self, raw_triples: list[Triple]) -> dict:
@@ -143,13 +143,22 @@ class OllamaTripleRefiner(TripleRefiner):
         prompt = _REFINE_PROMPT.format(triples=triples_text)
 
         try:
-            resp = requests.post(
-                self._url,
-                json={"model": self._model, "prompt": prompt, "stream": False},
+            t0 = time.perf_counter()
+            resp = self._client.post(
+                "/api/generate",
+                body={"model": self._model, "prompt": prompt, "stream": False},
                 timeout=300,
             )
-            resp.raise_for_status()
             raw = resp.json()["response"]
+            elapsed = time.perf_counter() - t0
+            log.info(
+                "Refiner batch %d/%d LLM call done model=%s response_len=%d (%.2fs)",
+                batch_idx,
+                total_batches,
+                self._model,
+                len(raw),
+                elapsed,
+            )
         except Exception as exc:
             log.warning(
                 "Refiner batch %d/%d call failed: %s", batch_idx, total_batches, exc

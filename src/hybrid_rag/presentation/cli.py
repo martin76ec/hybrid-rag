@@ -24,8 +24,11 @@ from ..application.ingest import IngestDocumentUseCase
 from ..application.query import QueryKnowledgeBaseUseCase
 from ..infrastructure.config import Config
 from ..infrastructure.faiss import FAISSVectorStore
+from ..infrastructure.logging import setup_logging
 from ..infrastructure.networkx import NetworkXGraphStore
 from ..infrastructure.ollama import (
+    OllamaClient,
+    OllamaDocumentAnalyzer,
     OllamaEmbeddingProvider,
     OllamaLanguageModel,
     OllamaTripleExtractor,
@@ -36,17 +39,45 @@ from ..infrastructure.pypdf import PyPDFDocumentReader
 app = typer.Typer(help="Hybrid Retrieval-Augmented Generation CLI")
 
 
+@app.callback()
+def main(
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Set log level to INFO"
+    ),
+    debug: bool = typer.Option(False, "--debug", "-d", help="Set log level to DEBUG"),
+) -> None:
+    """Hybrid-RAG: Vector search + knowledge graph, fused via RRF."""
+    if debug:
+        setup_logging("DEBUG")
+    elif verbose:
+        setup_logging("INFO")
+    else:
+        cfg = Config()
+        setup_logging(cfg.log_level)
+
+
 def _cfg() -> Config:
     return Config()
+
+
+def _ollama_client(cfg: Config) -> OllamaClient:
+    return OllamaClient(
+        cfg.ollama_host,
+        max_retries=cfg.ollama_max_retries,
+        max_concurrency=cfg.ollama_max_concurrency,
+        cache_dir=cfg.ollama_cache_dir,
+    )
 
 
 def _wire_ingest_use_case() -> IngestDocumentUseCase:
     """Construct the ingest use case with all concrete dependencies."""
     cfg = _cfg()
-    triple_extractor = OllamaTripleExtractor(cfg.ollama_host, cfg.llm_model)
-    triple_refiner = OllamaTripleRefiner(cfg.ollama_host, cfg.llm_model)
+    client = _ollama_client(cfg)
+    triple_extractor = OllamaTripleExtractor(client, cfg.llm_model)
+    triple_refiner = OllamaTripleRefiner(client, cfg.llm_model)
+    document_analyzer = OllamaDocumentAnalyzer(client, cfg.llm_model)
     graph_store = NetworkXGraphStore(cfg.graph_store_path)
-    embedder = OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model)
+    embedder = OllamaEmbeddingProvider(client, cfg.embedding_model)
     return IngestDocumentUseCase(
         reader=PyPDFDocumentReader(),
         embedder=embedder,
@@ -54,17 +85,19 @@ def _wire_ingest_use_case() -> IngestDocumentUseCase:
         triple_extractor=triple_extractor,
         graph_store=graph_store,
         triple_refiner=triple_refiner,
+        document_analyzer=document_analyzer,
     )
 
 
 def _wire_query_use_case() -> QueryKnowledgeBaseUseCase:
     """Construct the query use case with all concrete dependencies."""
     cfg = _cfg()
+    client = _ollama_client(cfg)
     graph_store = NetworkXGraphStore(cfg.graph_store_path)
     return QueryKnowledgeBaseUseCase(
-        embedder=OllamaEmbeddingProvider(cfg.ollama_host, cfg.embedding_model),
+        embedder=OllamaEmbeddingProvider(client, cfg.embedding_model),
         store=FAISSVectorStore(cfg.faiss_index_path),
-        llm=OllamaLanguageModel(cfg.ollama_host, cfg.llm_model),
+        llm=OllamaLanguageModel(client, cfg.llm_model),
         graph_store=graph_store,
     )
 
@@ -91,6 +124,14 @@ def ingest_cmd(
             )
             if result.extraction_summary:
                 s = result.extraction_summary
+                if s.doc_type:
+                    rprint(f"  [dim]Document type:[/dim] {s.doc_type}")
+                if s.doc_description:
+                    rprint(f"  [dim]Description:[/dim] {s.doc_description}")
+                if s.suggested_triple_patterns:
+                    rprint(
+                        f"  [dim]Suggested patterns:[/dim] {len(s.suggested_triple_patterns)}"
+                    )
                 rprint(f"  [dim]Raw triples:[/dim] {len(s.raw_triples)}")
                 if s.canonical_mapping:
                     rprint(
